@@ -238,25 +238,40 @@ socket.on('room:error', msg => showToast('⚠️ ' + msg));
 
 socket.on('room:update', data => {
   roomState = data;
-  if (data.me?.team === 'mouse' && data.me.seatIndex !== null) {
-    localUI.selectedMouseId = data.me.seatIndex;
+  const myIndices = data.me?.seatIndices || [];
+  if (data.me?.team === 'mouse' && myIndices.length) {
+    const curM = data.game?.mice?.[localUI.selectedMouseId];
+    if (!myIndices.includes(localUI.selectedMouseId) || curM?.delivered || curM?.movedThisTurn) {
+      const nextUnmoved = myIndices.find(idx => {
+        const m = data.game?.mice?.[idx];
+        return m && !m.delivered && !m.movedThisTurn;
+      });
+      localUI.selectedMouseId = nextUnmoved !== undefined ? nextUnmoved : myIndices[0];
+    }
   }
-  if (data.me?.team === 'cat' && data.me.seatIndex !== null && data.game?.phase === 'CAT_TURN') {
-    const myCat = data.game.cats[data.me.seatIndex];
-    if (myCat && !myCat.actedThisTurn) {
-      if (localUI.selectedCatId !== data.me.seatIndex) {
-        localUI.selectedCatId = data.me.seatIndex;
-        localUI.catMoveEdge = myCat.edgeId;
-        localUI.catMode = myCat.searchingThisTurn ? 'search' : 'move';
-      } else if (myCat.searchingThisTurn) {
-        localUI.catMoveEdge = myCat.edgeId;
-        localUI.catMode = 'search';
+  if (data.me?.team === 'cat' && myIndices.length && data.game?.phase === 'CAT_TURN') {
+    // Prefer any cat currently mid-search, else keep current if still unacted, else pick first unacted owned cat
+    const midSearch = myIndices.find(idx => data.game.cats[idx]?.searchingThisTurn);
+    if (midSearch !== undefined) {
+      localUI.selectedCatId = midSearch;
+      localUI.catMoveEdge = data.game.cats[midSearch].edgeId;
+      localUI.catMode = 'search';
+    } else {
+      const curCat = localUI.selectedCatId !== null ? data.game.cats[localUI.selectedCatId] : null;
+      if (!curCat || !myIndices.includes(localUI.selectedCatId) || curCat.actedThisTurn) {
+        const nextCatIdx = myIndices.find(idx => !data.game.cats[idx]?.actedThisTurn);
+        if (nextCatIdx !== undefined) {
+          localUI.selectedCatId = nextCatIdx;
+          localUI.catMoveEdge = data.game.cats[nextCatIdx].edgeId;
+          localUI.catMode = 'move';
+          localUI.controllingClone = false;
+        } else {
+          localUI.selectedCatId = null;
+          localUI.catMoveEdge = null;
+          localUI.catMode = 'move';
+          localUI.controllingClone = false;
+        }
       }
-    } else if (myCat?.actedThisTurn) {
-      localUI.selectedCatId = null;
-      localUI.catMoveEdge = null;
-      localUI.catMode = 'move';
-      localUI.controllingClone = false;
     }
   }
   try { localStorage.setItem('stc_room', data.lobby.code); } catch {}
@@ -324,6 +339,9 @@ document.getElementById('btnModeClassic').addEventListener('click', () => {
 document.getElementById('btnModeThree').addEventListener('click', () => {
   if (roomState?.me?.isHost) socket.emit('room:setMode', { cheeseMode: 'three' });
 });
+document.getElementById('btnClaimAllMouse').addEventListener('click', () => socket.emit('room:claimTeamAll', { team: 'mouse' }));
+document.getElementById('btnClaimAllCat').addEventListener('click', () => socket.emit('room:claimTeamAll', { team: 'cat' }));
+document.getElementById('btnReleaseExtra').addEventListener('click', () => socket.emit('room:releaseExtraSeats'));
 
 
 document.getElementById('btnCopyRoom').addEventListener('click', () => {
@@ -409,14 +427,21 @@ function renderAll() {
     document.getElementById('entryForms').classList.add('hidden');
     document.getElementById('waitingRoom').classList.remove('hidden');
     document.getElementById('displayRoomCode').textContent = lobby.code;
-    document.getElementById('myTeamBadge').textContent = me.team === 'mouse' ? '🐭 생쥐 팀' : me.team === 'cat' ? '🐱 고양이 팀' : '👀 관전자';
+    document.getElementById('myTeamBadge').textContent = me.team === 'mouse' ? `🐭 생쥐 팀 (${(me.seatKeys||[]).length}마리 조종)` : me.team === 'cat' ? `🐱 고양이 팀 (${(me.seatKeys||[]).length}마리 조종)` : '👀 관전자';
 
-    document.getElementById('seatList').innerHTML = lobby.seats.map(s => `
-      <button onclick="claimSeat('${s.seatKey}')" class="p-2.5 rounded-xl border text-left transition ${s.seatKey === me.seatKey ? 'bg-amber-500/20 border-amber-400' : 'bg-stone-900/70 border-stone-700 hover:border-stone-500'}">
-        <div class="text-xs font-bold ${s.team === 'mouse' ? 'text-sky-300' : 'text-orange-300'}">${s.label}</div>
-        <div class="text-[11px] text-stone-300 mt-0.5">${s.playerName ? `${s.playerName} ${s.connected ? '🟢' : '🔴'}` : '🤖 빈 자리 (AI 자동 배정)'}</div>
-      </button>
-    `).join('');
+    const mySeatKeys = me.seatKeys || [];
+    document.getElementById('seatList').innerHTML = lobby.seats.map(s => {
+      const isMine = mySeatKeys.includes(s.seatKey);
+      const isOccupiedByOther = Boolean(s.playerName) && !isMine;
+      return `
+      <button ${isOccupiedByOther ? 'disabled' : ''} onclick="claimSeat('${s.seatKey}')" class="p-2.5 rounded-xl border text-left transition ${isMine ? 'bg-amber-500/20 border-amber-400' : isOccupiedByOther ? 'bg-stone-900/50 border-stone-800 opacity-65 cursor-not-allowed' : 'bg-stone-900/70 border-stone-700 hover:border-amber-400/60'}">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold ${s.team === 'mouse' ? 'text-sky-300' : 'text-orange-300'}">${s.label}</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded ${isMine ? 'bg-amber-400 text-stone-950 font-extrabold' : isOccupiedByOther ? 'bg-stone-800 text-stone-400' : 'bg-purple-500/25 text-purple-200'}">${isMine ? '내가 조종' : isOccupiedByOther ? '다른 유저' : '🤖 AI'}</span>
+        </div>
+        <div class="text-[11px] text-stone-300 mt-0.5">${isMine ? `${s.playerName} (클릭 시 AI로 전환)` : isOccupiedByOther ? `${s.playerName} ${s.connected ? '🟢' : '🔴'}` : '클릭해 내가 직접 조종'}</div>
+      </button>`;
+    }).join('');
 
     const isThree = lobby.cheeseMode === 'three';
     document.getElementById('btnModeClassic').className = `p-2 rounded-lg border text-left transition ${!isThree ? 'bg-amber-500/20 border-amber-400' : 'bg-stone-900 border-stone-700 opacity-70'} ${me.isHost ? 'cursor-pointer hover:border-amber-400/70' : 'cursor-default'}`;
@@ -564,15 +589,16 @@ function renderControls(game, me) {
     el.innerHTML = `
       <div class="grid grid-cols-2 gap-2">
         ${game.mice.map(m => {
-          const isMine = (m.id === me.seatIndex);
+          const isMine = (me.seatIndices || []).includes(m.id);
+          const isSel = (localUI.selectedMouseId === m.id);
           return `
-          <div class="p-2 rounded-xl border text-left ${isMine ? 'bg-sky-500/20 border-sky-400' : 'bg-stone-900/60 border-stone-800 opacity-75'}">
+          <button type="button" ${!isMine || m.delivered ? 'disabled' : ''} onclick="pickMouse(${m.id})" class="p-2 rounded-xl border text-left transition ${isMine ? (isSel ? 'bg-sky-500/25 border-sky-400 ring-1 ring-sky-300' : 'bg-stone-900 border-stone-600 hover:border-sky-400/70') : 'bg-stone-900/60 border-stone-800 opacity-70 cursor-not-allowed'}">
             <div class="text-xs font-bold text-white flex items-center justify-between">
               <span>${m.name}</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded ${isMine ? 'bg-sky-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? '내 말' : (m.isAI ? 'AI 팀원' : '팀원 말')}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded ${isMine ? 'bg-sky-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? (isSel ? '조종 중' : '내 말') : (m.isAI ? '🤖 AI' : '팀원 말')}</span>
             </div>
             <div class="text-[11px] text-amber-300 mt-0.5">${m.delivered ? '🕳️ 배달 완료' : m.movedThisTurn ? `✓ #${m.pendingPos} 예정` : `현재 #${m.pos}`}</div>
-          </div>`;
+          </button>`;
         }).join('')}
       </div>
       <div class="grid grid-cols-3 gap-1.5">
@@ -613,7 +639,7 @@ function renderControls(game, me) {
     el.innerHTML = `
       <div class="space-y-2">
         ${game.cats.map(c => {
-          const isMine = (c.id === me.seatIndex);
+          const isMine = (me.seatIndices || []).includes(c.id);
           return `
           <div onclick="${(!isMine || c.actedThisTurn) ? '' : `pickCat(${c.id})`}" class="p-2.5 rounded-xl border transition ${c.actedThisTurn ? 'bg-stone-900/40 border-stone-800 opacity-45' : isMine ? 'bg-orange-500/20 border-orange-400 cursor-pointer' : 'bg-stone-900/60 border-stone-800 opacity-75'}">
             <div class="flex items-center justify-between">
@@ -669,10 +695,10 @@ function renderControls(game, me) {
   }
 }
 
-window.pickMouse = id => { if (roomState?.me?.seatIndex !== id) { showToast('본인의 생쥐 말만 움직일 수 있습니다!'); return; } localUI.selectedMouseId = id; localUI.selectedMouseCard = null; renderAll(); };
+window.pickMouse = id => { if (!(roomState?.me?.seatIndices || []).includes(id)) { showToast('본인이 조종하는 생쥐 말만 움직일 수 있습니다!'); return; } localUI.selectedMouseId = id; localUI.selectedMouseCard = null; renderAll(); };
 window.toggleMCard = cid => { localUI.selectedMouseCard = localUI.selectedMouseCard === cid ? null : cid; renderAll(); };
 window.confirmMouse = () => socket.emit('game:action', { type: 'confirmMouseTurn' });
-window.pickCat = id => { if (roomState?.me?.seatIndex !== id) { showToast('본인의 고양이 말만 움직일 수 있습니다!'); return; } localUI.selectedCatId = id; localUI.catMoveEdge = roomState.game.cats[id].edgeId; localUI.catMode = roomState.game.cats[id].searchingThisTurn ? 'search' : 'move'; renderAll(); };
+window.pickCat = id => { if (!(roomState?.me?.seatIndices || []).includes(id)) { showToast('본인이 조종하는 고양이 말만 움직일 수 있습니다!'); return; } localUI.selectedCatId = id; localUI.catMoveEdge = roomState.game.cats[id].edgeId; localUI.catMode = roomState.game.cats[id].searchingThisTurn ? 'search' : 'move'; renderAll(); };
 window.setCatCaptureMode = () => { localUI.catMode = 'capture'; showToast('빨간색으로 표시된 인접 원형 칸 중 1곳을 클릭하세요!'); renderAll(); };
 window.cancelCatAbility = () => {
   localUI.catMode = 'move';
@@ -681,7 +707,7 @@ window.cancelCatAbility = () => {
 };
 
 window.useCatAbility = (catId, cardId) => {
-  if (roomState?.me?.seatIndex !== catId) return showToast('본인의 고양이 카드만 발동할 수 있습니다!');
+  if (!(roomState?.me?.seatIndices || []).includes(catId)) return showToast('본인이 조종하는 고양이 카드만 발동할 수 있습니다!');
   if (localUI.catMode === 'ability' && localUI.activeAbility?.cardId === cardId) {
     cancelCatAbility();
     return;
@@ -996,7 +1022,7 @@ canvas.addEventListener('click', ev => {
         return;
       }
       if (localUI.selectedCatId === null) {
-        const c = game.cats.find(x => x.id === me.seatIndex && x.edgeId === hit.id && !x.actedThisTurn);
+        const c = game.cats.find(x => (me.seatIndices || []).includes(x.id) && x.edgeId === hit.id && !x.actedThisTurn);
         if (c) { pickCat(c.id); return; }
         showToast('본인의 고양이 말만 조작할 수 있습니다!');
         return;

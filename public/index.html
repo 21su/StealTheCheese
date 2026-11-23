@@ -81,7 +81,14 @@
         </div>
 
         <div class="space-y-2">
-          <div class="text-xs font-bold text-stone-300">자리를 클릭해 진영을 선택하세요 (빈 자리는 AI 자동 배정)</div>
+          <div class="flex flex-wrap items-center justify-between gap-1.5">
+            <div class="text-xs font-bold text-stone-300">자리 클릭으로 여러 캐릭터 직접 조종 / AI 전환</div>
+            <div class="flex gap-1">
+              <button id="btnClaimAllMouse" type="button" class="px-2 py-1 rounded bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/50 text-[10px] font-bold text-sky-200">🐭 생쥐 전체 조종</button>
+              <button id="btnClaimAllCat" type="button" class="px-2 py-1 rounded bg-orange-500/20 hover:bg-orange-500/35 border border-orange-400/50 text-[10px] font-bold text-orange-200">🐱 고양이 전체 조종</button>
+              <button id="btnReleaseExtra" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 border border-stone-600 text-[10px] font-bold text-stone-300">🤖 1개만 조종</button>
+            </div>
+          </div>
           <div id="seatList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
         </div>
 

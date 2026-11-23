@@ -63,11 +63,20 @@ function broadcastRoom(room) {
     if (!p.socketId) return;
     const sock = io.sockets.sockets.get(p.socketId);
     if (!sock) return;
-    const seat = room.seats.find(s => s.token === p.token);
-    const team = seat ? seat.team : 'spectator';
+    const mySeats = room.seats.filter(s => s.token === p.token);
+    const team = mySeats.length ? mySeats[0].team : 'spectator';
     sock.emit('room:update', {
       lobby,
-      me: { token: p.token, name: p.name, team, seatKey: seat?.seatKey || null, seatIndex: seat ? seat.index : null, isHost: p.token === room.hostToken },
+      me: {
+        token: p.token,
+        name: p.name,
+        team,
+        seatKey: mySeats[0]?.seatKey || null,
+        seatIndex: mySeats.length ? mySeats[0].index : null,
+        seatKeys: mySeats.map(s => s.seatKey),
+        seatIndices: mySeats.map(s => s.index),
+        isHost: p.token === room.hostToken
+      },
       game: room.engine ? room.engine.getFilteredState(team) : null
     });
   });
@@ -143,8 +152,9 @@ io.on('connection', socket => {
       const existing = room.players.get(pToken);
       existing.socketId = socket.id;
       if (playerName) existing.name = playerName;
-      const seat = room.seats.find(s => s.token === pToken);
-      if (seat) { seat.socketId = socket.id; seat.playerName = existing.name; }
+      room.seats.forEach(seat => {
+        if (seat.token === pToken) { seat.socketId = socket.id; seat.playerName = existing.name; }
+      });
     } else {
       const name = playerName || `플레이어${room.players.size + 1}`;
       room.players.set(pToken, { token: pToken, name, socketId: socket.id });
@@ -176,13 +186,67 @@ io.on('connection', socket => {
     const target = room.seats.find(s => s.seatKey === seatKey);
     if (!target || (target.token && target.token !== token)) return;
 
+    // If clicking a seat I already control -> release it back to AI!
+    if (target.token === token) {
+      target.token = null;
+      target.playerName = null;
+      target.socketId = null;
+      target.isAI = true;
+      broadcastRoom(room);
+      return;
+    }
+
+    // If switching to the opposite team -> release previous team's seats first (no peeking both teams)
     room.seats.forEach(s => {
-      if (s.token === token) { s.token = null; s.playerName = null; s.socketId = null; s.isAI = true; }
+      if (s.token === token && s.team !== target.team) {
+        s.token = null; s.playerName = null; s.socketId = null; s.isAI = true;
+      }
     });
+
+    // Claim this seat (allows owning multiple seats on the same team!)
     target.token = token;
     target.playerName = player.name;
     target.socketId = socket.id;
     target.isAI = false;
+    broadcastRoom(room);
+  });
+
+  socket.on('room:claimTeamAll', ({ team }) => {
+    const room = rooms.get(socket.data?.roomCode);
+    if (!room || room.engine) return;
+    const token = socket.data.token;
+    const player = room.players.get(token);
+    if (!['mouse', 'cat'].includes(team)) return;
+
+    // Release opposite team seats
+    room.seats.forEach(s => {
+      if (s.token === token && s.team !== team) {
+        s.token = null; s.playerName = null; s.socketId = null; s.isAI = true;
+      }
+    });
+    // Claim all empty seats on requested team
+    room.seats.forEach(s => {
+      if (s.team === team && !s.token) {
+        s.token = token;
+        s.playerName = player.name;
+        s.socketId = socket.id;
+        s.isAI = false;
+      }
+    });
+    broadcastRoom(room);
+  });
+
+  socket.on('room:releaseExtraSeats', () => {
+    const room = rooms.get(socket.data?.roomCode);
+    if (!room || room.engine) return;
+    const token = socket.data.token;
+    let kept = false;
+    room.seats.forEach(s => {
+      if (s.token === token) {
+        if (!kept) { kept = true; }
+        else { s.token = null; s.playerName = null; s.socketId = null; s.isAI = true; }
+      }
+    });
     broadcastRoom(room);
   });
 
@@ -208,42 +272,44 @@ io.on('connection', socket => {
   socket.on('game:action', payload => {
     const room = rooms.get(socket.data?.roomCode);
     if (!room || !room.engine) return;
-    const seat = room.seats.find(s => s.token === socket.data.token);
-    if (!seat) return socket.emit('room:error', '관전자는 행동할 수 없습니다.');
+    const mySeats = room.seats.filter(s => s.token === socket.data.token);
+    if (!mySeats.length) return socket.emit('room:error', '관전자는 행동할 수 없습니다.');
+    const myTeam = mySeats[0].team;
+    const myIndices = mySeats.map(s => s.index);
 
     let res = { error: '알 수 없는 명령' };
     const { type } = payload;
 
-    if (seat.team === 'mouse') {
+    if (myTeam === 'mouse') {
       if (type === 'placeCheese') {
         res = room.engine.placeCheese(payload.nodeId);
       } else if (type === 'placeMouseStart') {
-        if (room.engine.state.setupMouseIdx !== seat.index) {
-          res = { error: '본인 차례의 생쥐 시작 위치만 선택할 수 있습니다!' };
+        if (!myIndices.includes(room.engine.state.setupMouseIdx)) {
+          res = { error: '본인이 조종하는 생쥐의 시작 위치만 선택할 수 있습니다!' };
         } else {
           res = room.engine.placeMouseStart(payload.nodeId);
         }
       } else if (type === 'stageMouseMove') {
-        if (payload.mouseId !== seat.index) {
-          res = { error: '다른 플레이어의 생쥐 말은 움직일 수 없습니다!' };
+        if (!myIndices.includes(payload.mouseId)) {
+          res = { error: '다른 플레이어(또는 AI)의 생쥐 말은 움직일 수 없습니다!' };
         } else {
-          res = room.engine.stageMouseMove(seat.index, payload.nodeId, payload.cardType || null);
+          res = room.engine.stageMouseMove(payload.mouseId, payload.nodeId, payload.cardType || null);
         }
       } else if (type === 'confirmMouseTurn') {
         res = room.engine.confirmMouseTurn();
       }
-    } else if (seat.team === 'cat') {
+    } else if (myTeam === 'cat') {
       if (type === 'placeCatStart') {
-        if (room.engine.state.setupCatIdx !== seat.index) {
-          res = { error: '본인 차례의 고양이만 배치할 수 있습니다!' };
+        if (!myIndices.includes(room.engine.state.setupCatIdx)) {
+          res = { error: '본인이 조종하는 고양이 차례에만 배치할 수 있습니다!' };
         } else {
           res = room.engine.placeCatStart(payload.edgeId);
         }
       } else if (type === 'catAction') {
-        if (payload.catId !== seat.index) {
-          res = { error: '다른 플레이어의 고양이 말은 움직일 수 없습니다!' };
+        if (!myIndices.includes(payload.catId)) {
+          res = { error: '다른 플레이어(또는 AI)의 고양이 말은 움직일 수 없습니다!' };
         } else {
-          res = room.engine.catAction({ ...payload, catId: seat.index });
+          res = room.engine.catAction({ ...payload, catId: payload.catId });
         }
       } else if (type === 'selectDraftCard') {
         res = room.engine.selectDraftCard(payload.cardIdx, payload.catId);
@@ -282,8 +348,9 @@ io.on('connection', socket => {
     const token = socket.data.token;
     const p = room.players.get(token);
     if (p && p.socketId === socket.id) p.socketId = null;
-    const seat = room.seats.find(s => s.token === token);
-    if (seat && seat.socketId === socket.id) seat.socketId = null;
+    room.seats.forEach(seat => {
+      if (seat.token === token && seat.socketId === socket.id) seat.socketId = null;
+    });
     broadcastRoom(room);
   });
 });
