@@ -78,12 +78,13 @@ function shuffle(arr) {
 }
 
 class GameEngine {
-  constructor(seats) {
+  constructor(seats, options = {}) {
     const bronzeDeck = shuffle(CAT_CARDS.bronze.map(c => ({ ...c })));
     const silverDeck = shuffle(CAT_CARDS.silver.map(c => ({ ...c })));
     const goldDeck = shuffle(CAT_CARDS.gold.map(c => ({ ...c })));
 
     this.state = {
+      cheeseMode: options.cheeseMode === 'three' ? 'three' : 'classic',
       round: 1,
       turn: 1,
       phase: 'SETUP_CHEESE', // SETUP_CHEESE, SETUP_MICE, SETUP_CATS, MOUSE_TURN, CAT_TURN, DRAFT, GAME_OVER
@@ -147,7 +148,7 @@ class GameEngine {
   }
 
   requiredCheeseCount() {
-    return this.state.round === 1 ? 3 : 2;
+    return (this.state.cheeseMode === 'three' || this.state.round === 1) ? 3 : 2;
   }
 
   catHasCard(cat, cardId) {
@@ -261,7 +262,7 @@ class GameEngine {
     this.state.cheeses.push({ nodeId, quad: n.q, stolenBy: null, carriedOver: false });
 
     if (this.state.cheeses.length >= this.requiredCheeseCount()) {
-      if (this.state.round === 1) {
+      if (this.state.round === 1 || this.state.cheeseMode === 'three') {
         this.state.phase = 'SETUP_MICE';
         this.state.setupMouseIdx = 0;
         const usedQ = new Set(this.state.cheeses.map(c => c.quad));
@@ -294,6 +295,9 @@ class GameEngine {
       this.state.phase = 'SETUP_CATS';
       this.state.setupCatIdx = 0;
       this.addLog('🐭 생쥐 팀이 치즈 3개와 시작 위치를 비밀리에 확정했습니다.');
+    } else if (this.state.cheeseMode === 'three') {
+      this.addLog(`🐭 ${this.state.round}라운드(치즈 3개 모드): 생쥐 팀이 빈 구역 쥐구멍 앞에서 출발합니다!`);
+      this.startMouseTurn();
     } else {
       this.state.stolenTokens = [];
       const occQ = new Set([this.state.mice[0].allowedStartQuad, this.state.mice[1].allowedStartQuad, ...this.state.cheeses.map(c => c.quad)]);
@@ -624,17 +628,24 @@ class GameEngine {
       m.trail = [];
       m.log.push(`--- ${this.state.round}라운드 시작 ---`);
     });
-    this.state.phase = 'SETUP_MICE';
-    this.state.setupMouseIdx = 0;
-    this.addLog(`🔄 ${this.state.round}라운드 시작! 고양이 위치와 이전 발자국은 유지됩니다.`);
+    if (this.state.cheeseMode === 'three') {
+      this.state.stolenTokens = [];
+      this.state.relocateAllowedQuads = null;
+      this.state.phase = 'SETUP_CHEESE';
+      this.addLog(`🔄 ${this.state.round}라운드(치즈 3개 모드) 시작! 남은 치즈 1개 유지 + 새 치즈 2개를 배치합니다.`);
+    } else {
+      this.state.phase = 'SETUP_MICE';
+      this.state.setupMouseIdx = 0;
+      this.addLog(`🔄 ${this.state.round}라운드 시작! 고양이 위치와 이전 발자국은 유지됩니다.`);
+    }
     this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
-  // === AI AUTO-PLAY FOR AI SEATS ===
+  // === AI AUTO-PLAY FOR AI SEATS (SUPPORTS MIXED HUMAN + AI TEAMS) ===
   runAutoAIIfNeeded() {
     let safety = 0;
-    while (safety++ < 12 && this.state.phase !== 'GAME_OVER') {
+    while (safety++ < 15 && this.state.phase !== 'GAME_OVER') {
       const miceAllAI = this.state.mice.every(m => m.isAI);
       const catsAllAI = this.state.cats.every(c => c.isAI);
 
@@ -645,23 +656,33 @@ class GameEngine {
         if (!availQ.length) break;
         const whites = GRAPH.nodes.filter(n => n.q === availQ[0] && n.type === 'white');
         this.placeCheese(whites[Math.floor(Math.random() * whites.length)].id);
-      } else if (this.state.phase === 'SETUP_MICE' && miceAllAI) {
+      } else if (this.state.phase === 'SETUP_MICE' && this.state.mice[this.state.setupMouseIdx]?.isAI) {
         const m = this.state.mice[this.state.setupMouseIdx];
         const opts = QUAD_START_BLACKS[m.allowedStartQuad].filter(nid => nid !== this.state.mice[1 - m.id].pos);
         this.placeMouseStart(opts[Math.floor(Math.random() * opts.length)]);
-      } else if (this.state.phase === 'SETUP_CATS' && catsAllAI) {
+      } else if (this.state.phase === 'SETUP_CATS' && this.state.cats[this.state.setupCatIdx]?.isAI) {
         const freeRed = RED_EDGES.filter(eid => !this.state.cats.some(c => c.edgeId === eid));
         this.placeCatStart(freeRed[Math.floor(Math.random() * freeRed.length)]);
-      } else if (this.state.phase === 'MOUSE_TURN' && miceAllAI) {
+      } else if (this.state.phase === 'MOUSE_TURN') {
+        let stagedAnyAI = false;
         this.state.mice.forEach(m => {
-          if (m.delivered) return;
-          const legal = this.getMouseLegalMoves(m.id, null);
-          const pick = legal.length ? legal[Math.floor(Math.random() * legal.length)] : m.pos;
-          m.pendingPos = pick; m.movedThisTurn = true;
+          if (m.isAI && !m.delivered && !m.movedThisTurn) {
+            const legal = this.getMouseLegalMoves(m.id, null);
+            const pick = legal.length ? legal[Math.floor(Math.random() * legal.length)] : m.pos;
+            m.pendingPos = pick; m.movedThisTurn = true;
+            stagedAnyAI = true;
+          }
         });
-        this.confirmMouseTurn();
-      } else if (this.state.phase === 'CAT_TURN' && catsAllAI) {
-        const c = this.state.cats.find(x => !x.actedThisTurn);
+        const allHumansDone = this.state.mice.every(m => m.isAI || m.delivered);
+        if (allHumansDone && this.state.mice.every(m => m.delivered || m.movedThisTurn)) {
+          this.confirmMouseTurn();
+        } else if (!stagedAnyAI) {
+          break;
+        }
+      } else if (this.state.phase === 'CAT_TURN') {
+        const humansRemaining = this.state.cats.some(c => !c.isAI && !c.actedThisTurn);
+        if (humansRemaining) break;
+        const c = this.state.cats.find(x => x.isAI && !x.actedThisTurn);
         if (!c) break;
         const reach = this.getCatReachableEdges(c.id, false);
         const edge = reach[Math.floor(Math.random() * reach.length)];
@@ -680,6 +701,7 @@ class GameEngine {
   getFilteredState(viewerTeam) {
     const showSecrets = (viewerTeam === 'mouse' || this.state.phase === 'GAME_OVER');
     return {
+      cheeseMode: this.state.cheeseMode,
       round: this.state.round,
       turn: this.state.turn,
       phase: this.state.phase,

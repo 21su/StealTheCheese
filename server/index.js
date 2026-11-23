@@ -29,6 +29,7 @@ function getRoomPublicLobby(room) {
   return {
     code: room.code,
     hostToken: room.hostToken,
+    cheeseMode: room.cheeseMode || 'classic',
     started: Boolean(room.engine),
     seats: room.seats.map(s => ({
       seatKey: s.seatKey,
@@ -52,7 +53,7 @@ function broadcastRoom(room) {
     const team = seat ? seat.team : 'spectator';
     sock.emit('room:update', {
       lobby,
-      me: { token: p.token, name: p.name, team, seatKey: seat?.seatKey || null, isHost: p.token === room.hostToken },
+      me: { token: p.token, name: p.name, team, seatKey: seat?.seatKey || null, seatIndex: seat ? seat.index : null, isHost: p.token === room.hostToken },
       game: room.engine ? room.engine.getFilteredState(team) : null
     });
   });
@@ -98,6 +99,7 @@ io.on('connection', socket => {
     const room = {
       code,
       hostToken: pToken,
+      cheeseMode: 'classic',
       engine: null,
       players: new Map(),
       seats: [
@@ -169,6 +171,13 @@ io.on('connection', socket => {
     broadcastRoom(room);
   });
 
+  socket.on('room:setMode', ({ cheeseMode }) => {
+    const room = rooms.get(socket.data?.roomCode);
+    if (!room || room.engine || room.hostToken !== socket.data.token) return;
+    room.cheeseMode = cheeseMode === 'three' ? 'three' : 'classic';
+    broadcastRoom(room);
+  });
+
   socket.on('room:start', () => {
     const room = rooms.get(socket.data?.roomCode);
     if (!room || room.hostToken !== socket.data.token) return;
@@ -176,7 +185,7 @@ io.on('connection', socket => {
       mice: room.seats.filter(s => s.team === 'mouse').map(s => ({ name: s.playerName || s.label, isAI: !s.token })),
       cats: room.seats.filter(s => s.team === 'cat').map(s => ({ name: s.playerName || s.label, isAI: !s.token }))
     };
-    room.engine = new GameEngine(seatCfg);
+    room.engine = new GameEngine(seatCfg, { cheeseMode: room.cheeseMode });
     broadcastRoom(room);
   });
 
@@ -190,14 +199,39 @@ io.on('connection', socket => {
     const { type } = payload;
 
     if (seat.team === 'mouse') {
-      if (type === 'placeCheese') res = room.engine.placeCheese(payload.nodeId);
-      else if (type === 'placeMouseStart') res = room.engine.placeMouseStart(payload.nodeId);
-      else if (type === 'stageMouseMove') res = room.engine.stageMouseMove(payload.mouseId, payload.nodeId, payload.cardType || null);
-      else if (type === 'confirmMouseTurn') res = room.engine.confirmMouseTurn();
+      if (type === 'placeCheese') {
+        res = room.engine.placeCheese(payload.nodeId);
+      } else if (type === 'placeMouseStart') {
+        if (room.engine.state.setupMouseIdx !== seat.index) {
+          res = { error: '본인 차례의 생쥐 시작 위치만 선택할 수 있습니다!' };
+        } else {
+          res = room.engine.placeMouseStart(payload.nodeId);
+        }
+      } else if (type === 'stageMouseMove') {
+        if (payload.mouseId !== seat.index) {
+          res = { error: '다른 플레이어의 생쥐 말은 움직일 수 없습니다!' };
+        } else {
+          res = room.engine.stageMouseMove(seat.index, payload.nodeId, payload.cardType || null);
+        }
+      } else if (type === 'confirmMouseTurn') {
+        res = room.engine.confirmMouseTurn();
+      }
     } else if (seat.team === 'cat') {
-      if (type === 'placeCatStart') res = room.engine.placeCatStart(payload.edgeId);
-      else if (type === 'catAction') res = room.engine.catAction(payload);
-      else if (type === 'selectDraftCard') res = room.engine.selectDraftCard(payload.cardIdx, payload.catId);
+      if (type === 'placeCatStart') {
+        if (room.engine.state.setupCatIdx !== seat.index) {
+          res = { error: '본인 차례의 고양이만 배치할 수 있습니다!' };
+        } else {
+          res = room.engine.placeCatStart(payload.edgeId);
+        }
+      } else if (type === 'catAction') {
+        if (payload.catId !== seat.index) {
+          res = { error: '다른 플레이어의 고양이 말은 움직일 수 없습니다!' };
+        } else {
+          res = room.engine.catAction({ ...payload, catId: seat.index });
+        }
+      } else if (type === 'selectDraftCard') {
+        res = room.engine.selectDraftCard(payload.cardIdx, payload.catId);
+      }
     }
 
     if (res.error) socket.emit('room:error', res.error);
