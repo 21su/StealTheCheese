@@ -129,7 +129,9 @@ class GameEngine {
         actedThisTurn: false,
         extraTurns: 0,
         failedSearches: 0,
-        sprintMode: false
+        sprintMode: false,
+        searchingThisTurn: false,
+        searchedNodes: []
       })),
       cloneCat: { active: false, ownerId: null, edgeId: null },
       setupMouseIdx: 0,
@@ -415,6 +417,8 @@ class GameEngine {
       c.actedThisTurn = false;
       c.extraTurns = this.catHasCard(c, 'gold_2') ? 1 : 0;
       c.sprintMode = false;
+      c.searchingThisTurn = false;
+      c.searchedNodes = [];
     });
   }
 
@@ -507,12 +511,16 @@ class GameEngine {
       }
     }
 
-    // Move validation
-    const legalEdges = this.getCatReachableEdges(catId, isClone);
-    if (!legalEdges.includes(edgeId)) return { error: '이동할 수 없는 교차로입니다.' };
+    // Move validation (if already mid-search, stay locked on current edge!)
     const actor = isClone ? this.state.cloneCat : cat;
     const prevEdge = actor.edgeId;
-    actor.edgeId = edgeId;
+    if (!cat.searchingThisTurn) {
+      const legalEdges = this.getCatReachableEdges(catId, isClone);
+      if (!legalEdges.includes(edgeId)) return { error: '이동할 수 없는 교차로입니다.' };
+      actor.edgeId = edgeId;
+    } else {
+      edgeId = actor.edgeId;
+    }
 
     if (!isClone && this.catHasCard(cat, 'gold_2') && prevEdge !== edgeId) {
       const adjAlly = this.state.cats.find(o => o.id !== catId && EDGE_ADJ[prevEdge].includes(o.edgeId));
@@ -535,28 +543,63 @@ class GameEngine {
     const adj = this.getCatAdjacentNodes(edgeId, !isClone && this.catHasLonelyBonus(cat));
     const actorName = isClone ? '분신 고양이' : cat.name;
 
-    if (actionType === 'search') {
-      const validTargets = targetNodes.filter(nid => adj.includes(nid));
+    if (actionType === 'searchStep') {
+      const nid = targetNodes[0];
+      if (!adj.includes(nid)) return { error: '현재 고양이의 수색 범위 내 칸을 클릭하세요.' };
+      if (cat.searchedNodes.includes(nid)) return { error: '이번 턴에 이미 수색한 칸입니다.' };
+      cat.searchingThisTurn = true;
+      cat.searchedNodes.push(nid);
+
+      const activeTrails = new Set();
+      this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(t => activeTrails.add(t)); });
+      if (activeTrails.has(nid)) {
+        if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
+          this.state.cluesCurrent.push(nid);
+        }
+        const msg = `🐾 ${actorName} #${nid}번 칸 수색 → 발자국 발견! (수색 즉시 종료)`;
+        this.addLog(msg);
+        this.setBanner(msg, 'cat');
+        this.finishCat(catId);
+      } else {
+        const remaining = adj.filter(x => !cat.searchedNodes.includes(x));
+        this.addLog(`🔍 ${actorName} #${nid}번 칸 수색 → 흔적 없음${remaining.length ? ` (남은 칸 ${remaining.length}곳)` : ''}`);
+        if (remaining.length === 0) {
+          if (!isClone) cat.failedSearches++;
+          this.finishCat(catId);
+        }
+      }
+    } else if (actionType === 'searchEnd') {
+      if (!cat.searchingThisTurn) return { error: '진행 중인 수색이 없습니다.' };
+      if (!isClone) cat.failedSearches++;
+      this.addLog(`🔍 ${actorName} 수색 종료`);
+      this.finishCat(catId);
+    } else if (actionType === 'search') {
+      // Used by AI: search adjacent nodes one by one, stopping immediately on first clue hit!
+      const validTargets = shuffle(targetNodes.filter(nid => adj.includes(nid)));
       if (!validTargets.length) return { error: '수색할 인접 칸을 1곳 이상 선택하세요.' };
       const activeTrails = new Set();
-      this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(nid => activeTrails.add(nid)); });
-      const found = [];
-      validTargets.forEach(nid => {
+      this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(t => activeTrails.add(t)); });
+      let hitNode = null;
+      const checked = [];
+      for (const nid of validTargets) {
+        checked.push(nid);
         if (activeTrails.has(nid)) {
-          found.push(nid);
+          hitNode = nid;
           if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
             this.state.cluesCurrent.push(nid);
           }
+          break;
         }
-      });
-      if (found.length) {
-        this.addLog(`🐾 ${actorName} 수색(${validTargets.map(n=>'#'+n).join(', ')}) → 발자국 발견: ${found.map(n=>'#'+n).join(', ')}!`);
+      }
+      if (hitNode !== null) {
+        this.addLog(`🐾 ${actorName} 수색(${checked.map(n=>'#'+n).join('→')}) → #${hitNode}번 칸 발자국 발견! (수색 종료)`);
       } else {
         if (!isClone) cat.failedSearches++;
-        this.addLog(`🔍 ${actorName} 수색(${validTargets.map(n=>'#'+n).join(', ')}) → 흔적 없음`);
+        this.addLog(`🔍 ${actorName} 수색(${checked.map(n=>'#'+n).join(', ')}) → 흔적 없음`);
       }
       this.finishCat(catId);
     } else if (actionType === 'capture') {
+      if (cat.searchingThisTurn) return { error: '이미 수색을 시작해 포획할 수 없습니다.' };
       if (!isClone && this.catHasCard(cat, 'gold_2')) return { error: '[제트 팩 장착!] 고양이는 포획할 수 없습니다.' };
       const target = targetNodes[0];
       if (!adj.includes(target)) return { error: '인접한 원형 칸 1곳을 선택하세요.' };
@@ -585,6 +628,8 @@ class GameEngine {
     }
     cat.actedThisTurn = true;
     cat.sprintMode = false;
+    cat.searchingThisTurn = false;
+    cat.searchedNodes = [];
     if (this.state.cats.every(c => c.actedThisTurn)) {
       if (this.state.turn >= 20) {
         this.addLog('⏰ 20턴 제한 시간 초과! 고양이 팀이 승리했습니다.');
