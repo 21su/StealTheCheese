@@ -2,53 +2,47 @@
 
 공식 규칙서(`RuleBook/치즈를 훔쳐라.docx`)와 보드·카드·토큰 에셋을 기반으로 제작된 **2vs3 비대칭 추리·추격 온라인 멀티플레이어(Node.js + Socket.IO)** 프로젝트입니다.
 
+## 🌐 라이브 플레이 주소 (Render 배포)
+- **게임 접속 URL**: https://steal-the-cheese-game.onrender.com
+- 무료 플랜 특성상 15분 이상 미접속 시 절전 상태가 되며, 첫 접속 시 약 30~60초 후 자동으로 깨어납니다. 게임 진행 중(WebSocket 연결 상태)에는 절전되지 않습니다.
+
 ## 📁 폴더 구조
 
 ```text
 WebGame/
 ├── package.json              # Node.js + Express + Socket.IO 의존성
 ├── render.yaml               # Render 무료 티어 원클릭 배포 설정
-├── README.md                 # 무료 서버 비교 및 배포 가이드
+├── README.md                 # 라이브 주소, 기능 요약 및 무료 배포 가이드
 ├── steal_the_cheese_local.html # 서버 없이 바로 실행하는 로컬 패스앤플레이 버전
+├── Releases/                 # 버전별 패키징 ZIP 아카이브 보관 폴더
 ├── server/
-│   ├── index.js              # Express + Socket.IO 실시간 방/로비/재접속/팀 채팅 서버
-│   └── gameEngine.js         # 서버 권한(Server-Authoritative) 게임 엔진 + 진영별 비공개 필터링
+│   ├── index.js              # Express + Socket.IO 실시간 방/로비/다중 캐릭터 조종/재접속/채팅 서버
+│   └── gameEngine.js         # 서버 권한 게임 엔진 + 진영별 비공개 필터링 + 순차 AI
 └── public/
-    ├── index.html            # 온라인 멀티플레이어 웹 클라이언트
+    ├── index.html            # 온라인 멀티플레이어 웹 클라이언트 (규칙·증강 18종 도감 포함)
     ├── style.css             # 반응형 UI 스타일
-    ├── client.js             # Socket.IO 통신 및 캔버스 보드 렌더링
+    ├── client.js             # Socket.IO 통신, 이동 가이드라인, 한 칸씩 수색, 페이드아웃 알림
     └── data/
         ├── board_graph.json  # 150개 원형 칸·249개 교차로·100개 담넘기 블록 좌표 그래프
         └── assets_bundle.json # 메인 보드·18종 카드·토큰 이미지 번들
 ```
 
-## 🔐 핵심 멀티플레이어 기능
-- **서버 권한 비공개 정보 보호**: 치즈 위치, 생쥐 A·B 위치, 비밀 이동 기록지, 사용된 특수 카드 종류는 서버에만 저장되며 **고양이 팀 브라우저에는 절대 전송되지 않습니다.**
-- **초대 코드 방 시스템**: 4자리 방 코드로 최대 5명(생쥐 A·B, 고양이 1·2·3)이 입장하며, 빈 자리는 AI 봇으로 채워 1~5명 누구나 플레이할 수 있습니다.
-- **자동 재접속**: 새로고침이나 모바일 화면 전환 시 `localStorage`의 세션 토큰으로 기존 자리에 자동 복귀합니다.
-- **진영별 비밀 채팅**: 생쥐 팀 전용 비밀 채팅과 전체 공개 채팅을 지원합니다.
+## 🔐 핵심 멀티플레이어 기능 (v9 기준)
+- **서버 권한 비공개 정보 보호**: 치즈 위치, 생쥐 A·B 위치, 비밀 이동 기록지, 사용된 특수 카드 종류는 서버에만 저장되며 고양이 팀 브라우저에는 전송되지 않습니다.
+- **1인 다중 캐릭터 조종 & AI 전환**: 대기실에서 빈 자리를 클릭해 같은 팀 여러 캐릭터를 직접 조종하거나 AI 봇으로 자유롭게 전환할 수 있습니다(다른 유저의 말은 조작 불가).
+- **게임 모드 선택**: 방장이 **기본 모드(공식 룰)** 또는 **치즈 3개 모드**(매 라운드 치즈 3개 유지, 빈 구역 쥐구멍 앞 출발)를 선택할 수 있습니다.
+- **15턴 제한 & 치즈 획득 턴 -3**: 매 라운드 15턴 제한이며, 생쥐가 치즈를 1개 주울 때마다 턴이 3턴씩 뒤로(최소 1턴) 돌아갑니다. 치즈 도난 시 토큰 대신 `A/B/C/D 구역 치즈가 도둑맞았습니다.` 상단 배너가 표시됩니다.
+- **한 칸씩 단서 수색 & 페이드아웃 알림**: 고양이가 주변 칸을 한 칸씩 클릭해 탐색하며 발자국 발견 시 즉시 수색이 종료되고, 탐지·포획 결과는 화면 중앙 페이드아웃 알림으로 표시됩니다.
+- **CPU 순차 행동 & 증강 카드 발동**: AI는 한 단계씩 차례대로 행동하며, 고양이 15종 증강 카드의 `발동` 버튼과 18종 전체 카드 도감을 지원합니다.
 
-## 🆓 100% 무료 배포 서버 비교 (2026년 기준)
-
-| 서비스 | 무료 한도 | WebSocket 지원 | 카드 등록 | 특징 |
-| :--- | :--- | :--- | :--- | :--- |
-| **[Render Free](https://render.com/docs/free)** ⭐추천 | 월 750시간 (1개 서버 상시 가능) | 지원 (WebSocket 통신 중 절전 안 됨) | **불필요** | Express+Socket.IO 하나로 프론트+서버 동시 무료 배포 |
-| **[Koyeb Free](https://www.koyeb.com/docs/compare/render-vs-koyeb)** | 1개 무료 인스턴스 (512MB RAM) | 지원 (최대 12시간 연결) | 필요 | 1시간 유휴 시 절전, GitHub 자동 배포 |
-| **[Railway Free](https://railway.com/pricing)** | 첫 30일 $5, 이후 월 $1 크레딧 | 지원 | GitHub 인증 | 소규모 테스트에 적합, 크레딧 소진 시 중지 |
-| **[Vercel Hobby](https://vercel.com/docs/plans/hobby)** | 월 100GB 대역폭 (비상업용) | 정적 프론트 전용 | 불필요 | 프론트만 분리 호스팅할 때 선택 (Render 단독 배포 시 불필요) |
-
-## 🚀 Render로 5분 만에 무료 배포하기 (카드 등록 없음)
-1. 이 `WebGame/` 폴더의 내용을 새 **GitHub 저장소**에 업로드합니다.
-2. [Render](https://render.com/docs/free)에 GitHub 계정으로 로그인합니다.
-3. **New + → Blueprint** (또는 **Web Service**)를 선택하고 GitHub 저장소를 연결합니다.
-4. `render.yaml`이 자동 인식되며 **Plan: Free**, **Build Command: `npm install`**, **Start Command: `npm start`**가 설정됩니다.
-5. **Deploy**를 누르면 `https://steal-the-cheese-game.onrender.com` 같은 HTTPS 주소가 생성되며, 친구들에게 링크와 4자리 방 코드만 공유하면 바로 멀티플레이할 수 있습니다!
-
-> 참고: 무료 플랜은 아무도 접속하지 않고 15분이 지나면 절전 모드에 들어가며, 첫 접속 시 약 30~60초 후 깨어납니다. 게임 중(WebSocket 연결 상태)에는 절전되지 않습니다.
+## 🚀 Render 무료 배포 및 업데이트 방법
+1. 이 `WebGame/` 폴더 안의 파일들(`package.json`, `render.yaml`, `README.md`, `server/`, `public/`)을 GitHub 저장소에 올립니다.
+2. [Render](https://render.com/docs/free)에 GitHub 계정으로 로그인하고 **New + → Blueprint**로 저장소를 연결하면 `render.yaml`이 자동 인식되어 무료(`plan: free`)로 배포됩니다.
+3. 이후 코드를 수정해 GitHub에 커밋하면 Render가 자동으로 재배포합니다.
 
 ## 💻 내 컴퓨터에서 로컬 테스트하기
 ```bash
 npm install
 npm start
-# 브라우저에서 http://localhost:3000 접속 (탭 여러 개로 동시 접속 테스트 가능)
+# 브라우저에서 http://localhost:3000 접속
 ```
