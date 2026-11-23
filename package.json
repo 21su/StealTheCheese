@@ -1,0 +1,17 @@
+{
+  "name": "steal-the-cheese-multiplayer",
+  "version": "1.0.0",
+  "description": "치즈를 훔쳐라! 2vs3 비대칭 추리·추격 온라인 멀티플레이어 웹 보드게임",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

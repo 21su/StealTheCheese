@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>치즈를 훔쳐라! — 온라인 멀티플레이어</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="flex flex-col min-h-screen">
+  <header class="sticky top-0 z-30 bg-[#1a1512]/95 backdrop-blur border-b border-[#3a3028] px-3 py-2">
+    <div class="max-w-[1440px] mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">🧀</span>
+        <div>
+          <h1 class="text-sm sm:text-base font-extrabold text-amber-300 leading-tight">치즈를 훔쳐라! 온라인</h1>
+          <div id="roomMeta" class="text-[11px] text-stone-400">서버 연결 중...</div>
+        </div>
+        <span id="roundBadge" class="hidden px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"></span>
+        <span id="phaseBadge" class="hidden px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40"></span>
+      </div>
+      <div id="turnTrack" class="flex items-center gap-1 overflow-x-auto"></div>
+      <div class="flex items-center gap-1.5">
+        <button id="btnCopyRoom" class="hidden px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/50 text-amber-200">📋 방 코드 복사</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Lobby Screen -->
+  <section id="lobbyView" class="flex-1 flex items-center justify-center p-4">
+    <div class="panel-card max-w-xl w-full p-6 space-y-5 border-amber-500/40">
+      <div>
+        <span class="inline-block px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold mb-1">2vs3 온라인 비대칭 추리·추격</span>
+        <h2 class="text-2xl font-extrabold text-white">치즈를 훔쳐라! 멀티 로비</h2>
+        <p class="text-xs text-stone-400 mt-1">방 코드를 공유해 최대 5명이 실시간 접속할 수 있습니다. 빈 자리는 AI 봇이 자동으로 채웁니다.</p>
+      </div>
+
+      <div id="entryForms" class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-stone-300 mb-1">닉네임</label>
+          <input id="inpName" type="text" maxlength="14" placeholder="예: 치즈도둑" class="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-700 text-sm text-white outline-none focus:border-amber-400" />
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <button id="btnCreateRoom" class="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-sm">🏠 새 방 만들기</button>
+          <div class="flex gap-1.5">
+            <input id="inpCode" type="text" maxlength="4" placeholder="방 코드 4자리" class="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-700 text-sm uppercase tracking-widest text-white outline-none focus:border-sky-400" />
+            <button id="btnJoinRoom" class="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-stone-950 font-extrabold text-sm shrink-0">입장</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="waitingRoom" class="hidden space-y-4">
+        <div class="flex items-center justify-between p-3 rounded-xl bg-stone-900/80 border border-amber-500/40">
+          <div>
+            <div class="text-[11px] text-stone-400">초대 방 코드</div>
+            <div id="displayRoomCode" class="text-2xl font-extrabold tracking-widest text-amber-300">----</div>
+          </div>
+          <div id="myTeamBadge" class="px-3 py-1 rounded-full text-xs font-bold bg-stone-800 text-stone-200"></div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="text-xs font-bold text-stone-300">자리를 클릭해 진영을 선택하세요 (빈 자리는 AI 자동 배정)</div>
+          <div id="seatList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+        </div>
+
+        <button id="btnStartOnline" class="hidden w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-sm">게임 시작하기 →</button>
+        <div id="waitHostHint" class="text-center text-xs text-stone-400">방장이 게임을 시작할 때까지 기다리는 중...</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Active Game Screen -->
+  <main id="gameView" class="hidden flex-1 max-w-[1440px] w-full mx-auto p-3 grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+    <section class="lg:col-span-7 xl:col-span-8 flex flex-col gap-2">
+      <div class="panel-card px-3.5 py-2.5 flex items-center justify-between gap-2">
+        <p id="instructionText" class="text-xs sm:text-sm font-semibold text-stone-100"></p>
+        <span id="myRoleChip" class="px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0"></span>
+      </div>
+      <div class="board-wrap" id="boardWrap">
+        <canvas id="gameCanvas"></canvas>
+      </div>
+    </section>
+
+    <aside class="lg:col-span-5 xl:col-span-4 flex flex-col gap-3">
+      <div id="controlPanel" class="panel-card p-3.5 space-y-3"></div>
+      <div class="panel-card p-3 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold text-amber-300">💬 실시간 채팅</h3>
+          <select id="chatChannel" class="bg-stone-900 border border-stone-700 rounded-lg px-2 py-0.5 text-[11px] text-stone-200">
+            <option value="team">우리 팀 비밀 채팅</option>
+            <option value="public">전체 공개 채팅</option>
+          </select>
+        </div>
+        <div id="chatBox" class="h-32 overflow-y-auto custom-scroll text-xs space-y-1"></div>
+        <form id="chatForm" class="flex gap-1.5">
+          <input id="chatInput" type="text" placeholder="메시지 입력..." class="flex-1 px-2.5 py-1.5 rounded-lg bg-stone-900 border border-stone-700 text-xs text-white outline-none focus:border-amber-400" />
+          <button type="submit" class="px-3 py-1.5 rounded-lg bg-amber-500 text-stone-950 font-bold text-xs">전송</button>
+        </form>
+      </div>
+      <div class="panel-card p-3">
+        <h3 class="text-xs font-bold text-stone-300 mb-1.5">📜 공개 게임 기록</h3>
+        <div id="publicLog" class="h-36 overflow-y-auto custom-scroll text-xs space-y-1"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2 rounded-xl bg-stone-900/95 border border-amber-400/60 text-amber-200 text-sm font-bold shadow-2xl"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
