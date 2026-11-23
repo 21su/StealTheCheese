@@ -59,6 +59,7 @@ GRAPH.edges.forEach(e => {
 
 const RED_EDGES = GRAPH.edges.filter(e => e.red).map(e => e.id);
 const HOLES = [2, 9, 142, 149];
+const QUAD_LETTERS = ['A', 'B', 'C', 'D'];
 const OPPOSITE_HOLE = { 2: 149, 149: 2, 9: 142, 142: 9 };
 const QUAD_START_BLACKS = {
   0: [1, 2, 3, 11, 12, 13],
@@ -136,10 +137,15 @@ class GameEngine {
       relocateAllowedQuads: null,
       draftOptions: [],
       draftTier: 'silver',
+      bannerEvent: null,
       publicLog: []
     };
     this.addLog('🎲 1라운드 시작! 생쥐 팀이 치즈 3개를 비밀리에 배치합니다.');
     this.runAutoAIIfNeeded();
+  }
+
+  setBanner(text, tone = 'amber') {
+    this.state.bannerEvent = { id: Date.now() + Math.random(), text, tone };
   }
 
   addLog(msg) {
@@ -363,7 +369,9 @@ class GameEngine {
         cardNote = ` [${cname}]`;
         if (!this.state.specialTrackMarks[this.state.turn]) this.state.specialTrackMarks[this.state.turn] = [];
         this.state.specialTrackMarks[this.state.turn].push(m.id === 0 ? 'A' : 'B');
-        this.addLog(`🎴 ${m.name}가 특수 이동 카드를 사용했습니다! (종류 비공개)`);
+        const cmsg = `🎴 ${m.name}가 특수 카드를 사용했습니다! (카드 비공개)`;
+        this.addLog(cmsg);
+        this.setBanner(cmsg, 'mouse');
       }
       m.log.push(`${this.state.turn}턴: #${prev} → #${m.pos}${cardNote}`);
 
@@ -376,8 +384,10 @@ class GameEngine {
         ch.stolenBy = m.id;
         m.hasCheese = true;
         m.stolenQuad = ch.quad;
-        this.state.stolenTokens.push({ nodeId: m.pos, mouseId: m.id, round: this.state.round });
-        this.addLog(`🧀 "치즈를 훔쳤습니다!" — ${m.name}가 #${m.pos}번 칸에서 치즈를 훔쳤습니다!`);
+        const qLabel = QUAD_LETTERS[ch.quad] || '?';
+        const msg = `🧀 ${qLabel} 구역 치즈가 도둑맞았습니다.`;
+        this.addLog(msg);
+        this.setBanner(msg, 'cheese');
       }
 
       if (m.hasCheese && HOLES.includes(m.pos) && !this.state.usedHolesThisRound.includes(m.pos)) {
@@ -417,13 +427,15 @@ class GameEngine {
     if (ability) {
       if (ability.cardId === 'bronze_3' && ability.nodeId) {
         this.state.bellNode = ability.nodeId;
-        this.addLog(`🔔 ${cat.name}가 [쥐목에 방울 달기]를 #${ability.nodeId}번 칸에 설치했습니다!`);
+        this.addLog(`🔔 ${cat.name}가 [쥐목에 방울 달기] 카드를 사용했습니다!`);
+        this.setBanner(`✨ ${cat.name}가 [쥐목에 방울 달기] 카드를 사용했습니다!`, 'cat');
         return { ok: true };
       }
       if (ability.cardId === 'silver_2' && ability.nodeId) {
         this.state.blockedNode = ability.nodeId;
         this.state.blockedNodeRound = this.state.round;
         this.addLog(`🚧 ${cat.name}가 [넌 못 지나간다.]로 #${ability.nodeId}번 칸을 봉쇄했습니다!`);
+        this.setBanner(`✨ ${cat.name}가 [넌 못 지나간다.] 카드를 사용했습니다!`, 'cat');
         return { ok: true };
       }
       if (ability.cardId === 'bronze_1' && !cat.usedOnce.bronze_1) {
@@ -433,6 +445,7 @@ class GameEngine {
         cat.edgeId = ability.edgeId;
         cat.usedOnce.bronze_1 = true;
         this.addLog(`⚡ ${cat.name}가 [합류는 기본 소양]으로 합류했습니다! (행동 불가)`);
+        this.setBanner(`✨ ${cat.name}가 [합류는 기본 소양] 카드를 사용했습니다!`, 'cat');
         this.finishCat(catId);
         this.runAutoAIIfNeeded();
         return { ok: true };
@@ -445,12 +458,17 @@ class GameEngine {
         target.edgeId = free;
         cat.usedOnce.bronze_5 = true;
         this.addLog(`📢 ${cat.name}가 [니가 와]로 ${target.name}을(를) 소환했습니다! (행동 불가)`);
+        this.setBanner(`✨ ${cat.name}가 [니가 와] 카드를 사용했습니다!`, 'cat');
         this.finishCat(catId);
         this.runAutoAIIfNeeded();
         return { ok: true };
       }
       if (ability.cardId === 'silver_1') {
         cat.sprintMode = !cat.sprintMode;
+        if (cat.sprintMode) {
+          this.addLog(`💨 ${cat.name}가 [날쌘 걸음] 카드를 활성화했습니다!`);
+          this.setBanner(`✨ ${cat.name}가 [날쌘 걸음] 카드를 사용했습니다!`, 'cat');
+        }
         return { ok: true };
       }
       if (ability.cardId === 'gold_4') {
@@ -458,6 +476,7 @@ class GameEngine {
           const free = EDGE_ADJ[cat.edgeId].find(eid => !this.getCatOccupiedEdges().has(eid)) ?? cat.edgeId;
           this.state.cloneCat = { active: true, ownerId: catId, edgeId: free };
           this.addLog(`🥷 ${cat.name}가 [금지된 인술]로 분신 고양이를 소환했습니다!`);
+          this.setBanner(`✨ ${cat.name}가 [금지된 인술] 카드를 사용했습니다!`, 'cat');
         }
         return { ok: true };
       }
@@ -466,6 +485,7 @@ class GameEngine {
         if (!other) return { error: '행동을 마친 다른 고양이가 없습니다.' };
         other.actedThisTurn = false;
         this.addLog(`🍜 ${cat.name}가 [라면 먹는 중]으로 ${other.name}에게 추가 행동을 부여했습니다!`);
+        this.setBanner(`✨ ${cat.name}가 [라면 먹는 중] 카드를 사용했습니다!`, 'cat');
         this.finishCat(catId);
         this.runAutoAIIfNeeded();
         return { ok: true };
@@ -480,6 +500,7 @@ class GameEngine {
             myCard.copiedId = copy.id;
             myCard.desc = `[복사됨: ${copy.name}] ${copy.desc}`;
             this.addLog(`🎭 ${cat.name}가 [카피닌묘]로 [${copy.name}] 능력을 복사했습니다!`);
+            this.setBanner(`✨ ${cat.name}가 [카피닌묘] 카드를 사용했습니다!`, 'cat');
           }
         }
         return { ok: true };
@@ -565,11 +586,11 @@ class GameEngine {
     cat.actedThisTurn = true;
     cat.sprintMode = false;
     if (this.state.cats.every(c => c.actedThisTurn)) {
-      if (this.state.turn >= 15) {
-        this.addLog('⏰ 15턴 제한 시간 초과! 고양이 팀이 승리했습니다.');
+      if (this.state.turn >= 20) {
+        this.addLog('⏰ 20턴 제한 시간 초과! 고양이 팀이 승리했습니다.');
         this.state.phase = 'GAME_OVER';
         this.state.winner = 'cat';
-        this.state.winReason = `${this.state.round}라운드 제한 시간(15턴) 초과로 고양이 팀이 승리했습니다!`;
+        this.state.winReason = `${this.state.round}라운드 제한 시간(20턴) 초과로 고양이 팀이 승리했습니다!`;
       } else {
         this.state.turn++;
         this.startMouseTurn();
@@ -720,6 +741,7 @@ class GameEngine {
       relocateAllowedQuads: showSecrets ? this.state.relocateAllowedQuads : null,
       draftOptions: (viewerTeam === 'cat' || this.state.phase === 'GAME_OVER') ? this.state.draftOptions : [],
       draftTier: this.state.draftTier,
+      bannerEvent: this.state.bannerEvent,
       publicLog: this.state.publicLog,
       cats: this.state.cats,
       cloneCat: this.state.cloneCat,
