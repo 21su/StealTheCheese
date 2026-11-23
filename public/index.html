@@ -163,11 +163,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="p-3 rounded-xl bg-sky-950/30 border border-sky-500/30">
             <h3 class="font-bold text-sky-300 mb-1">🐭 생쥐 팀 승리 조건 (2인 협동)</h3>
-            <p class="text-xs text-stone-300">매 라운드 20턴 내에 생쥐 A, B가 각각 치즈를 1개씩 훔쳐 <b>서로 다른 쥐구멍(2, 9, 142, 149)</b>으로 배달해야 합니다. 총 3라운드를 모두 완수하면 최종 승리합니다.</p>
+            <p class="text-xs text-stone-300">매 라운드 15턴 내에 (치즈 1개 획득 시 턴 -3) 생쥐 A, B가 각각 치즈를 1개씩 훔쳐 <b>서로 다른 쥐구멍(2, 9, 142, 149)</b>으로 배달해야 합니다. 총 3라운드를 모두 완수하면 최종 승리합니다.</p>
           </div>
           <div class="p-3 rounded-xl bg-orange-950/30 border border-orange-500/30">
             <h3 class="font-bold text-orange-300 mb-1">🐱 고양이 팀 승리 조건 (3인 협동)</h3>
-            <p class="text-xs text-stone-300">한 라운드 제한 턴(20턴) 내에 생쥐들이 배달을 끝내지 못하게 막거나, 활동 중인 생쥐 2마리 중 <b>1마리라도 포획</b>하면 즉시 승리합니다.</p>
+            <p class="text-xs text-stone-300">한 라운드 제한 턴(15턴) 내에 생쥐들이 배달을 끝내지 못하게 막거나, 활동 중인 생쥐 2마리 중 <b>1마리라도 포획</b>하면 즉시 승리합니다.</p>
           </div>
         </div>
         <div class="space-y-1.5 text-xs text-stone-300">
@@ -179,6 +179,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Floating Action Result Notice (Fade-out) -->
+  <div id="actionNotice" class="pointer-events-none fixed top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl border text-sm sm:text-base font-extrabold shadow-2xl opacity-0 transition-opacity duration-500"></div>
 
   <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2 rounded-xl bg-stone-900/95 border border-amber-400/60 text-amber-200 text-sm font-bold shadow-2xl"></div>
 

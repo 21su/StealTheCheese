@@ -43,6 +43,23 @@ function getStoredToken() {
   } catch { return 'tok_' + Math.random().toString(36).slice(2); }
 }
 
+let lastSeenPopupId = null;
+let noticeFadeTimer = null;
+function showActionNotice(text, tone = 'info') {
+  const el = document.getElementById('actionNotice');
+  if (!el || !text) return;
+  const cls = tone === 'found'
+    ? 'bg-emerald-950/95 border-emerald-400 text-emerald-200'
+    : tone === 'fail'
+    ? 'bg-red-950/95 border-red-400 text-red-200'
+    : 'bg-stone-900/95 border-amber-400/80 text-amber-200';
+  el.className = `pointer-events-none fixed top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl border text-sm sm:text-base font-extrabold shadow-2xl transition-opacity duration-500 ${cls}`;
+  el.textContent = text;
+  requestAnimationFrame(() => { el.style.opacity = '1'; });
+  clearTimeout(noticeFadeTimer);
+  noticeFadeTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
+}
+
 function showToast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -433,10 +450,10 @@ function renderAll() {
   roleChip.textContent = me.team === 'mouse' ? '🐭 생쥐 팀 시점' : me.team === 'cat' ? '🐱 고양이 팀 시점' : '👀 관전';
   roleChip.className = `px-2.5 py-0.5 rounded-full text-xs font-bold ${me.team === 'mouse' ? 'bg-sky-500/20 text-sky-300' : 'bg-orange-500/20 text-orange-300'}`;
 
-  // 20-Turn Track
+  // 15-Turn Track
   const track = document.getElementById('turnTrack');
   track.innerHTML = '';
-  for (let t = 1; t <= 20; t++) {
+  for (let t = 1; t <= 15; t++) {
     const d = document.createElement('div');
     d.className = `turn-pip border !w-5 !h-5 !text-[10px] ${t === game.turn ? 'bg-amber-500 text-stone-950 border-amber-300 scale-110' : 'bg-stone-900 text-stone-400 border-stone-700'}`;
     d.textContent = t;
@@ -461,6 +478,10 @@ function renderAll() {
     tb.textContent = game.bannerEvent.text;
   } else {
     tb.classList.add('hidden');
+  }
+  if (game.lastActionPopup?.id && game.lastActionPopup.id !== lastSeenPopupId) {
+    lastSeenPopupId = game.lastActionPopup.id;
+    showActionNotice(game.lastActionPopup.text, game.lastActionPopup.tone);
   }
   renderControls(game, me);
   document.getElementById('publicLog').innerHTML = game.publicLog.map(item =>
