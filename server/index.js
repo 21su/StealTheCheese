@@ -43,6 +43,20 @@ function getRoomPublicLobby(room) {
   };
 }
 
+function scheduleRoomAI(room) {
+  if (room.aiTimer) { clearTimeout(room.aiTimer); room.aiTimer = null; }
+  if (!room.engine || !room.engine.hasPendingAI()) return;
+  room.aiTimer = setTimeout(() => {
+    room.aiTimer = null;
+    if (!rooms.has(room.code) || !room.engine) return;
+    const acted = room.engine.stepSingleAI();
+    if (acted) {
+      broadcastRoom(room);
+      scheduleRoomAI(room);
+    }
+  }, 850);
+}
+
 function broadcastRoom(room) {
   const lobby = getRoomPublicLobby(room);
   room.players.forEach(p => {
@@ -79,6 +93,7 @@ function removePlayerFromRoom(socket) {
   socket.data = {};
 
   if (room.players.size === 0) {
+    if (room.aiTimer) clearTimeout(room.aiTimer);
     rooms.delete(code);
     return;
   }
@@ -187,6 +202,7 @@ io.on('connection', socket => {
     };
     room.engine = new GameEngine(seatCfg, { cheeseMode: room.cheeseMode });
     broadcastRoom(room);
+    scheduleRoomAI(room);
   });
 
   socket.on('game:action', payload => {
@@ -235,7 +251,7 @@ io.on('connection', socket => {
     }
 
     if (res.error) socket.emit('room:error', res.error);
-    else broadcastRoom(room);
+    else { broadcastRoom(room); scheduleRoomAI(room); }
   });
 
   socket.on('chat:send', ({ channel, text }) => {

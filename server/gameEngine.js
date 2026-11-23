@@ -140,14 +140,18 @@ class GameEngine {
       draftOptions: [],
       draftTier: 'silver',
       bannerEvent: null,
+      lastActionPopup: null,
       publicLog: []
     };
     this.addLog('🎲 1라운드 시작! 생쥐 팀이 치즈 3개를 비밀리에 배치합니다.');
-    this.runAutoAIIfNeeded();
   }
 
   setBanner(text, tone = 'amber') {
     this.state.bannerEvent = { id: Date.now() + Math.random(), text, tone };
+  }
+
+  setActionPopup(text, tone = 'info') {
+    this.state.lastActionPopup = { id: Date.now() + Math.random(), text, tone };
   }
 
   addLog(msg) {
@@ -280,7 +284,6 @@ class GameEngine {
         this.startMouseTurn();
       }
     }
-    this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
@@ -313,7 +316,6 @@ class GameEngine {
       this.state.phase = 'SETUP_CHEESE';
       this.addLog(`🐭 ${this.state.round}라운드: 생쥐 팀이 새 시작 위치를 정하고 치즈를 배치합니다.`);
     }
-    this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
@@ -329,7 +331,6 @@ class GameEngine {
     } else {
       this.startMouseTurn();
     }
-    this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
@@ -386,10 +387,13 @@ class GameEngine {
         ch.stolenBy = m.id;
         m.hasCheese = true;
         m.stolenQuad = ch.quad;
+        const prevTurn = this.state.turn;
+        this.state.turn = Math.max(1, this.state.turn - 3);
         const qLabel = QUAD_LETTERS[ch.quad] || '?';
-        const msg = `🧀 ${qLabel} 구역 치즈가 도둑맞았습니다.`;
+        const msg = `🧀 ${qLabel} 구역 치즈가 도둑맞았습니다! (턴 -3: ${prevTurn}턴 → ${this.state.turn}턴)`;
         this.addLog(msg);
         this.setBanner(msg, 'cheese');
+        this.setActionPopup(msg, 'found');
       }
 
       if (m.hasCheese && HOLES.includes(m.pos) && !this.state.usedHolesThisRound.includes(m.pos)) {
@@ -407,7 +411,6 @@ class GameEngine {
     } else {
       this.startCatTurn();
     }
-    this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
@@ -451,8 +454,7 @@ class GameEngine {
         this.addLog(`⚡ ${cat.name}가 [합류는 기본 소양]으로 합류했습니다! (행동 불가)`);
         this.setBanner(`✨ ${cat.name}가 [합류는 기본 소양] 카드를 사용했습니다!`, 'cat');
         this.finishCat(catId);
-        this.runAutoAIIfNeeded();
-        return { ok: true };
+            return { ok: true };
       }
       if (ability.cardId === 'bronze_5' && !cat.usedOnce.bronze_5) {
         const target = this.state.cats.find(o => o.id !== catId && o.edgeId === ability.edgeId);
@@ -464,8 +466,7 @@ class GameEngine {
         this.addLog(`📢 ${cat.name}가 [니가 와]로 ${target.name}을(를) 소환했습니다! (행동 불가)`);
         this.setBanner(`✨ ${cat.name}가 [니가 와] 카드를 사용했습니다!`, 'cat');
         this.finishCat(catId);
-        this.runAutoAIIfNeeded();
-        return { ok: true };
+            return { ok: true };
       }
       if (ability.cardId === 'silver_1') {
         cat.sprintMode = !cat.sprintMode;
@@ -491,8 +492,7 @@ class GameEngine {
         this.addLog(`🍜 ${cat.name}가 [라면 먹는 중]으로 ${other.name}에게 추가 행동을 부여했습니다!`);
         this.setBanner(`✨ ${cat.name}가 [라면 먹는 중] 카드를 사용했습니다!`, 'cat');
         this.finishCat(catId);
-        this.runAutoAIIfNeeded();
-        return { ok: true };
+            return { ok: true };
       }
       if (ability.cardId === 'gold_5') {
         const otherCards = [];
@@ -536,8 +536,7 @@ class GameEngine {
     if (!isClone && cat.sprintMode && this.catHasCard(cat, 'silver_1')) {
       this.addLog(`💨 ${cat.name}가 [날쌘 걸음]으로 질주 이동했습니다 (행동 불가).`);
       this.finishCat(catId);
-      this.runAutoAIIfNeeded();
-      return { ok: true };
+        return { ok: true };
     }
 
     const adj = this.getCatAdjacentNodes(edgeId, !isClone && this.catHasLonelyBonus(cat));
@@ -559,10 +558,12 @@ class GameEngine {
         const msg = `🐾 ${actorName} #${nid}번 칸 수색 → 발자국 발견! (수색 즉시 종료)`;
         this.addLog(msg);
         this.setBanner(msg, 'cat');
+        this.setActionPopup(`🐾 #${nid}번 칸에서 흔적을 발견했습니다!`, 'found');
         this.finishCat(catId);
       } else {
         const remaining = adj.filter(x => !cat.searchedNodes.includes(x));
         this.addLog(`🔍 ${actorName} #${nid}번 칸 수색 → 흔적 없음${remaining.length ? ` (남은 칸 ${remaining.length}곳)` : ''}`);
+        this.setActionPopup(`🔍 #${nid}번 칸에 흔적이 없습니다.`, 'miss');
         if (remaining.length === 0) {
           if (!isClone) cat.failedSearches++;
           this.finishCat(catId);
@@ -593,9 +594,11 @@ class GameEngine {
       }
       if (hitNode !== null) {
         this.addLog(`🐾 ${actorName} 수색(${checked.map(n=>'#'+n).join('→')}) → #${hitNode}번 칸 발자국 발견! (수색 종료)`);
+        this.setActionPopup(`🐾 ${actorName}: #${hitNode}번 칸에서 흔적을 발견했습니다!`, 'found');
       } else {
         if (!isClone) cat.failedSearches++;
         this.addLog(`🔍 ${actorName} 수색(${checked.map(n=>'#'+n).join(', ')}) → 흔적 없음`);
+        this.setActionPopup(`🔍 ${actorName}: 주변 구역에 흔적이 없습니다.`, 'miss');
       }
       this.finishCat(catId);
     } else if (actionType === 'capture') {
@@ -606,17 +609,18 @@ class GameEngine {
       const caught = this.state.mice.find(m => !m.delivered && m.pos === target);
       if (caught) {
         this.addLog(`💥 ${actorName}가 #${target}번 칸 포획 성공!! ${caught.name} 검거!`);
+        this.setActionPopup(`💥 #${target}번 칸 포획 성공! ${caught.name} 검거!`, 'found');
         this.state.phase = 'GAME_OVER';
         this.state.winner = 'cat';
         this.state.winReason = `${actorName}가 #${target}번 칸에서 ${caught.name}를 포획했습니다!`;
         return { ok: true };
       }
       this.addLog(`❌ ${actorName}가 #${target}번 칸 포획 시도 → 실패!`);
+      this.setActionPopup(`❌ #${target}번 칸 포획 실패! 흔적이 없습니다.`, 'fail');
       this.finishCat(catId);
     } else {
       return { error: '올바른 행동을 선택하세요.' };
     }
-    this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
@@ -631,11 +635,11 @@ class GameEngine {
     cat.searchingThisTurn = false;
     cat.searchedNodes = [];
     if (this.state.cats.every(c => c.actedThisTurn)) {
-      if (this.state.turn >= 20) {
-        this.addLog('⏰ 20턴 제한 시간 초과! 고양이 팀이 승리했습니다.');
+      if (this.state.turn >= 15) {
+        this.addLog('⏰ 15턴 제한 시간 초과! 고양이 팀이 승리했습니다.');
         this.state.phase = 'GAME_OVER';
         this.state.winner = 'cat';
-        this.state.winReason = `${this.state.round}라운드 제한 시간(20턴) 초과로 고양이 팀이 승리했습니다!`;
+        this.state.winReason = `${this.state.round}라운드 제한 시간(15턴) 초과로 고양이 팀이 승리했습니다!`;
       } else {
         this.state.turn++;
         this.startMouseTurn();
@@ -704,63 +708,83 @@ class GameEngine {
       this.state.setupMouseIdx = 0;
       this.addLog(`🔄 ${this.state.round}라운드 시작! 고양이 위치와 이전 발자국은 유지됩니다.`);
     }
-    this.runAutoAIIfNeeded();
     return { ok: true };
   }
 
-  // === AI AUTO-PLAY FOR AI SEATS (SUPPORTS MIXED HUMAN + AI TEAMS) ===
-  runAutoAIIfNeeded() {
-    let safety = 0;
-    while (safety++ < 15 && this.state.phase !== 'GAME_OVER') {
-      const miceAllAI = this.state.mice.every(m => m.isAI);
-      const catsAllAI = this.state.cats.every(c => c.isAI);
-
-      if (this.state.phase === 'SETUP_CHEESE' && miceAllAI) {
-        const availQ = this.state.relocateAllowedQuads
-          ? this.state.relocateAllowedQuads.filter(q => !this.state.cheeses.some(c => c.quad === q))
-          : shuffle([0, 1, 2, 3]).filter(q => !this.state.cheeses.some(c => c.quad === q));
-        if (!availQ.length) break;
-        const whites = GRAPH.nodes.filter(n => n.q === availQ[0] && n.type === 'white');
-        this.placeCheese(whites[Math.floor(Math.random() * whites.length)].id);
-      } else if (this.state.phase === 'SETUP_MICE' && this.state.mice[this.state.setupMouseIdx]?.isAI) {
-        const m = this.state.mice[this.state.setupMouseIdx];
-        const opts = QUAD_START_BLACKS[m.allowedStartQuad].filter(nid => nid !== this.state.mice[1 - m.id].pos);
-        this.placeMouseStart(opts[Math.floor(Math.random() * opts.length)]);
-      } else if (this.state.phase === 'SETUP_CATS' && this.state.cats[this.state.setupCatIdx]?.isAI) {
-        const freeRed = RED_EDGES.filter(eid => !this.state.cats.some(c => c.edgeId === eid));
-        this.placeCatStart(freeRed[Math.floor(Math.random() * freeRed.length)]);
-      } else if (this.state.phase === 'MOUSE_TURN') {
-        let stagedAnyAI = false;
-        this.state.mice.forEach(m => {
-          if (m.isAI && !m.delivered && !m.movedThisTurn) {
-            const legal = this.getMouseLegalMoves(m.id, null);
-            const pick = legal.length ? legal[Math.floor(Math.random() * legal.length)] : m.pos;
-            m.pendingPos = pick; m.movedThisTurn = true;
-            stagedAnyAI = true;
-          }
-        });
-        const allHumansDone = this.state.mice.every(m => m.isAI || m.delivered);
-        if (allHumansDone && this.state.mice.every(m => m.delivered || m.movedThisTurn)) {
-          this.confirmMouseTurn();
-        } else if (!stagedAnyAI) {
-          break;
-        }
-      } else if (this.state.phase === 'CAT_TURN') {
-        const humansRemaining = this.state.cats.some(c => !c.isAI && !c.actedThisTurn);
-        if (humansRemaining) break;
-        const c = this.state.cats.find(x => x.isAI && !x.actedThisTurn);
-        if (!c) break;
-        const reach = this.getCatReachableEdges(c.id, false);
-        const edge = reach[Math.floor(Math.random() * reach.length)];
-        const adj = this.getCatAdjacentNodes(edge, this.catHasLonelyBonus(c));
-        this.catAction({ catId: c.id, edgeId: edge, actionType: 'search', targetNodes: adj });
-      } else if (this.state.phase === 'DRAFT' && catsAllAI) {
-        const targetCat = this.state.cats.slice().sort((a, b) => a.cards.length - b.cards.length)[0];
-        this.selectDraftCard(0, targetCat.id);
-      } else {
-        break;
-      }
+  // === STEP-BY-STEP AI (1 ATOMIC ACTION PER TICK) ===
+  hasPendingAI() {
+    if (this.state.phase === 'GAME_OVER') return false;
+    const miceAllAI = this.state.mice.every(m => m.isAI);
+    const catsAllAI = this.state.cats.every(c => c.isAI);
+    if (this.state.phase === 'SETUP_CHEESE') return miceAllAI;
+    if (this.state.phase === 'SETUP_MICE') return Boolean(this.state.mice[this.state.setupMouseIdx]?.isAI);
+    if (this.state.phase === 'SETUP_CATS') return Boolean(this.state.cats[this.state.setupCatIdx]?.isAI);
+    if (this.state.phase === 'MOUSE_TURN') {
+      const anyAIUnmoved = this.state.mice.some(m => m.isAI && !m.delivered && !m.movedThisTurn);
+      const allHumansDone = this.state.mice.every(m => m.isAI || m.delivered);
+      return anyAIUnmoved || (allHumansDone && this.state.mice.every(m => m.delivered || m.movedThisTurn));
     }
+    if (this.state.phase === 'CAT_TURN') {
+      const humansRemaining = this.state.cats.some(c => !c.isAI && !c.actedThisTurn);
+      if (humansRemaining) return false;
+      return this.state.cats.some(c => c.isAI && !c.actedThisTurn);
+    }
+    if (this.state.phase === 'DRAFT') return catsAllAI;
+    return false;
+  }
+
+  stepSingleAI() {
+    if (!this.hasPendingAI()) return false;
+    if (this.state.phase === 'SETUP_CHEESE') {
+      const availQ = this.state.relocateAllowedQuads
+        ? this.state.relocateAllowedQuads.filter(q => !this.state.cheeses.some(c => c.quad === q))
+        : shuffle([0, 1, 2, 3]).filter(q => !this.state.cheeses.some(c => c.quad === q));
+      if (!availQ.length) return false;
+      const whites = GRAPH.nodes.filter(n => n.q === availQ[0] && n.type === 'white');
+      this.placeCheese(whites[Math.floor(Math.random() * whites.length)].id);
+      return true;
+    }
+    if (this.state.phase === 'SETUP_MICE') {
+      const m = this.state.mice[this.state.setupMouseIdx];
+      const opts = QUAD_START_BLACKS[m.allowedStartQuad].filter(nid => nid !== this.state.mice[1 - m.id].pos);
+      this.placeMouseStart(opts[Math.floor(Math.random() * opts.length)]);
+      return true;
+    }
+    if (this.state.phase === 'SETUP_CATS') {
+      const freeRed = RED_EDGES.filter(eid => !this.state.cats.some(c => c.edgeId === eid));
+      this.placeCatStart(freeRed[Math.floor(Math.random() * freeRed.length)]);
+      return true;
+    }
+    if (this.state.phase === 'MOUSE_TURN') {
+      const aiMouse = this.state.mice.find(m => m.isAI && !m.delivered && !m.movedThisTurn);
+      if (aiMouse) {
+        const legal = this.getMouseLegalMoves(aiMouse.id, null);
+        const pick = legal.length ? legal[Math.floor(Math.random() * legal.length)] : aiMouse.pos;
+        aiMouse.pendingPos = pick;
+        aiMouse.movedThisTurn = true;
+        return true;
+      }
+      if (this.state.mice.every(m => m.isAI || m.delivered) && this.state.mice.every(m => m.delivered || m.movedThisTurn)) {
+        this.confirmMouseTurn();
+        return true;
+      }
+      return false;
+    }
+    if (this.state.phase === 'CAT_TURN') {
+      const c = this.state.cats.find(x => x.isAI && !x.actedThisTurn);
+      if (!c) return false;
+      const reach = this.getCatReachableEdges(c.id, false);
+      const edge = reach[Math.floor(Math.random() * reach.length)];
+      const adj = this.getCatAdjacentNodes(edge, this.catHasLonelyBonus(c));
+      this.catAction({ catId: c.id, edgeId: edge, actionType: 'search', targetNodes: adj });
+      return true;
+    }
+    if (this.state.phase === 'DRAFT') {
+      const targetCat = this.state.cats.slice().sort((a, b) => a.cards.length - b.cards.length)[0];
+      this.selectDraftCard(0, targetCat.id);
+      return true;
+    }
+    return false;
   }
 
   // === SERVER-AUTHORITATIVE STATE FILTERING (CRITICAL FOR ANTI-CHEAT!) ===
@@ -787,6 +811,7 @@ class GameEngine {
       draftOptions: (viewerTeam === 'cat' || this.state.phase === 'GAME_OVER') ? this.state.draftOptions : [],
       draftTier: this.state.draftTier,
       bannerEvent: this.state.bannerEvent,
+      lastActionPopup: this.state.lastActionPopup,
       publicLog: this.state.publicLog,
       cats: this.state.cats,
       cloneCat: this.state.cloneCat,
