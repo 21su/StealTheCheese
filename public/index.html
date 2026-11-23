@@ -19,7 +19,7 @@
         <span id="roundBadge" class="hidden px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"></span>
         <span id="phaseBadge" class="hidden px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40"></span>
       </div>
-      <div id="turnTrack" class="flex items-center gap-1 overflow-x-auto"></div>
+      <div id="turnTrack" class="flex flex-wrap items-center gap-1"></div>
       <div class="flex items-center gap-1.5">
         <button id="btnGuide" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-100">📖 규칙·증강 도감</button>
         <button id="btnCopyRoom" class="hidden px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/50 text-amber-200">📋 방 코드 복사</button>
@@ -30,6 +30,18 @@
 
   <!-- Global Top Announcement Banner (Cheese Stolen / Card Used) -->
   <div id="topBanner" class="hidden sticky top-[52px] z-20 px-3 py-2 text-center text-xs sm:text-sm font-extrabold border-b shadow-lg transition-all"></div>
+
+  <!-- Left Collapsible Info Drawer & Edge Toggle Tab (Augments & Mouse Card Usage) -->
+  <button id="btnSideTab" type="button" class="hidden fixed left-0 top-1/2 -translate-y-1/2 z-30 px-2 py-3 rounded-r-xl bg-amber-500/95 hover:bg-amber-400 text-stone-950 font-extrabold text-xs shadow-2xl border border-l-0 border-amber-300 transition-transform" style="writing-mode: vertical-rl; text-orientation: upright;">
+    📋 카드·증강
+  </button>
+  <aside id="sideDrawer" class="fixed left-0 top-[56px] bottom-0 w-80 max-w-[88vw] z-40 bg-[#1a1512]/98 backdrop-blur-md border-r border-[#3a3028] shadow-2xl transform -translate-x-full transition-transform duration-300 flex flex-col">
+    <div class="px-4 py-3 border-b border-stone-700 flex items-center justify-between">
+      <h2 class="text-sm font-extrabold text-amber-300">📋 양팀 카드·증강 현황</h2>
+      <button id="btnCloseSideDrawer" type="button" class="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs font-bold text-stone-200">◀ 접기</button>
+    </div>
+    <div id="sideDrawerBody" class="flex-1 overflow-y-auto custom-scroll p-3.5 space-y-4"></div>
+  </aside>
 
   <!-- Lobby Screen -->
   <section id="lobbyView" class="flex-1 flex items-center justify-center p-4">

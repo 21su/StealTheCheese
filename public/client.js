@@ -29,7 +29,8 @@ let localUI = {
   catMode: 'move', // 'move' | 'search' | 'capture' | 'ability'
   activeAbility: null, // { catId, cardId }
   controllingClone: false,
-  draftCardIdx: null
+  draftCardIdx: null,
+  sideDrawerOpen: false
 };
 
 function getStoredToken() {
@@ -288,7 +289,11 @@ socket.on('room:left', () => {
   document.getElementById('turnTrack').innerHTML = '';
   document.getElementById('btnCopyRoom').classList.add('hidden');
   document.getElementById('btnLeaveRoom').classList.add('hidden');
+  document.getElementById('btnSideTab').classList.add('hidden');
+  toggleSideDrawer(false);
   document.getElementById('gameView').classList.add('hidden');
+  document.getElementById('btnSideTab').classList.add('hidden');
+  toggleSideDrawer(false);
   document.getElementById('lobbyView').classList.remove('hidden');
   document.getElementById('entryForms').classList.remove('hidden');
   document.getElementById('waitingRoom').classList.add('hidden');
@@ -316,6 +321,98 @@ function leaveCurrentRoom() {
 }
 
 document.getElementById('btnLeaveRoom').addEventListener('click', leaveCurrentRoom);
+function toggleSideDrawer(forceState) {
+  localUI.sideDrawerOpen = (typeof forceState === 'boolean') ? forceState : !localUI.sideDrawerOpen;
+  const drawer = document.getElementById('sideDrawer');
+  const tab = document.getElementById('btnSideTab');
+  if (localUI.sideDrawerOpen) {
+    drawer.classList.remove('-translate-x-full');
+    tab.classList.add('opacity-0', 'pointer-events-none');
+  } else {
+    drawer.classList.add('-translate-x-full');
+    if (roomState?.game) tab.classList.remove('opacity-0', 'pointer-events-none');
+  }
+}
+
+document.getElementById('btnSideTab').addEventListener('click', () => toggleSideDrawer());
+document.getElementById('btnCloseSideDrawer').addEventListener('click', () => toggleSideDrawer(false));
+
+function renderSideDrawer(game, me) {
+  const body = document.getElementById('sideDrawerBody');
+  if (!body || !game) return;
+  const showMouseCardTypes = (me.team === 'mouse' || game.phase === 'GAME_OVER');
+  const mCardsMeta = CARD_META?.MOUSE_CARDS || [
+    { id: 'sprint', imgKey: 'mouse_card_sprint', name: '질주', desc: '2칸 연속 이동 (고양이 무시)' },
+    { id: 'wall', imgKey: 'mouse_card_wall', name: '담 넘기', desc: '같은 건물 블록 건너편 이동' },
+    { id: 'hole', imgKey: 'mouse_card_hole', name: '쥐구멍 이동', desc: '맞은편 쥐구멍으로 이동' }
+  ];
+
+  const mouseSection = `
+    <div class="space-y-2">
+      <div class="text-xs font-extrabold text-sky-300 flex items-center justify-between">
+        <span>🐭 생쥐 특수 카드 사용 현황</span>
+        <span class="text-[10px] text-stone-400">${showMouseCardTypes ? '종류 공개(아군)' : '종류 비공개'}</span>
+      </div>
+      ${game.mice.map(m => {
+        const usedCnt = m.cards ? Object.values(m.cards).filter(v => !v).length : (m.usedCardCount || 0);
+        const totalCnt = m.totalCardCount || 3;
+        return `
+          <div class="p-2.5 rounded-xl bg-stone-900/80 border border-stone-700 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white">${m.name}</span>
+              <span class="text-[11px] font-bold ${usedCnt > 0 ? 'text-amber-300' : 'text-stone-400'}">${usedCnt} / ${totalCnt}장 사용 (${totalCnt - usedCnt}장 남음)</span>
+            </div>
+            ${showMouseCardTypes && m.cards ? `
+              <div class="flex flex-wrap gap-1">
+                ${mCardsMeta.map(mc => {
+                  const avail = m.cards[mc.id];
+                  return `<button type="button" onclick="zoomCard('${mc.imgKey}','생쥐 능력 카드','${escAttr(mc.name)}','${escAttr(mc.desc)}')" class="px-2 py-0.5 rounded text-[10px] font-bold border ${avail ? 'bg-sky-500/15 border-sky-400/60 text-sky-200' : 'bg-stone-800 border-stone-700 text-stone-500 line-through'}">${mc.name} ${avail ? '보유' : '사용됨'}</button>`;
+                }).join('')}
+              </div>
+            ` : `
+              <div class="flex gap-1">
+                ${[0, 1, 2].map(i => `<span class="flex-1 text-center py-0.5 rounded text-[10px] font-bold border ${i < usedCnt ? 'bg-amber-500/20 border-amber-400/60 text-amber-300' : 'bg-stone-800 border-stone-700 text-stone-400'}">${i < usedCnt ? '사용됨(비공개)' : '미사용'}</span>`).join('')}
+              </div>
+            `}
+          </div>`;
+      }).join('')}
+    </div>`;
+
+  const catSection = `
+    <div class="space-y-2">
+      <div class="text-xs font-extrabold text-orange-300 flex items-center justify-between">
+        <span>🐱 고양이 팀 장착 증강</span>
+        <span class="text-[10px] text-stone-400">클릭 시 카드 확대</span>
+      </div>
+      ${game.cats.map(c => `
+        <div class="p-2.5 rounded-xl bg-stone-900/80 border border-stone-700 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-white">${c.name}</span>
+            <span class="text-[10px] text-stone-400">총 ${(c.cards || []).length}장 장착</span>
+          </div>
+          <div class="space-y-1">
+            ${(c.cards || []).map(card => {
+              const effId = card.copiedId || card.id;
+              const used = Boolean(c.usedOnce?.[effId]);
+              const tierLabel = card.tier === 'gold' ? '3단계 · 골드' : card.tier === 'silver' ? '2단계 · 실버' : '1단계 · 브론즈';
+              const tierCol = card.tier === 'gold' ? 'border-amber-400/60 text-amber-300' : card.tier === 'silver' ? 'border-slate-400/60 text-slate-200' : 'border-orange-700/70 text-orange-200';
+              return `
+                <button type="button" onclick="zoomCard('${card.id}','${tierLabel}','${escAttr(card.name)}','${escAttr(card.desc)}')" class="w-full p-1.5 rounded-lg bg-stone-950/70 border ${tierCol} hover:bg-stone-800 text-left transition">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold">${card.name}</span>
+                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-stone-800 text-stone-300">${used ? '사용됨' : tierLabel.split(' · ')[1]}</span>
+                  </div>
+                  <div class="text-[10px] text-stone-400 mt-0.5 leading-snug">${card.desc}</div>
+                </button>`;
+            }).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+
+  body.innerHTML = mouseSection + catSection;
+}
+
 document.getElementById('btnLeaveLobby').addEventListener('click', leaveCurrentRoom);
 
 document.getElementById('btnCreateRoom').addEventListener('click', () => {
@@ -424,6 +521,8 @@ function renderAll() {
   if (!game) {
     document.getElementById('lobbyView').classList.remove('hidden');
     document.getElementById('gameView').classList.add('hidden');
+  document.getElementById('btnSideTab').classList.add('hidden');
+  toggleSideDrawer(false);
     document.getElementById('entryForms').classList.add('hidden');
     document.getElementById('waitingRoom').classList.remove('hidden');
     document.getElementById('displayRoomCode').textContent = lobby.code;
@@ -461,6 +560,7 @@ function renderAll() {
   // Active Game
   document.getElementById('lobbyView').classList.add('hidden');
   document.getElementById('gameView').classList.remove('hidden');
+  if (!localUI.sideDrawerOpen) document.getElementById('btnSideTab').classList.remove('hidden', 'opacity-0', 'pointer-events-none');
   document.getElementById('roundBadge').classList.remove('hidden');
   document.getElementById('phaseBadge').classList.remove('hidden');
   document.getElementById('roundBadge').textContent = `${game.round} / 3 라운드${game.cheeseMode === 'three' ? ' · 치즈3' : ''}`;
@@ -508,6 +608,7 @@ function renderAll() {
     lastSeenPopupId = game.lastActionPopup.id;
     showActionNotice(game.lastActionPopup.text, game.lastActionPopup.tone);
   }
+  renderSideDrawer(game, me);
   renderControls(game, me);
   document.getElementById('publicLog').innerHTML = game.publicLog.map(item =>
     `<div class="p-1.5 rounded bg-stone-900/70"><span class="text-amber-400 font-bold mr-1">[${item.turn}]</span>${item.msg}</div>`

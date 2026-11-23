@@ -688,6 +688,18 @@ class GameEngine {
     this.state.specialTrackMarks = {};
     this.state.usedHolesThisRound = [];
     this.state.bellNode = null;
+    // Reset all cats back to central red starting intersections each round
+    const resetReds = shuffle(RED_EDGES);
+    this.state.cats.forEach((c, idx) => {
+      c.edgeId = resetReds[idx];
+      c.searchingThisTurn = false;
+      c.searchedNodes = [];
+      c.sprintMode = false;
+    });
+    if (this.state.cloneCat.active) {
+      this.state.cloneCat.edgeId = resetReds[3] ?? resetReds[0];
+    }
+
     this.state.cheeses = this.state.cheeses.filter(c => c.stolenBy === null).map(c => ({ ...c, carriedOver: true }));
     this.state.mice.forEach(m => {
       m.allowedStartQuad = m.stolenQuad !== null ? m.stolenQuad : 0;
@@ -706,7 +718,7 @@ class GameEngine {
     } else {
       this.state.phase = 'SETUP_MICE';
       this.state.setupMouseIdx = 0;
-      this.addLog(`🔄 ${this.state.round}라운드 시작! 고양이 위치와 이전 발자국은 유지됩니다.`);
+      this.addLog(`🔄 ${this.state.round}라운드 시작! 고양이들은 중앙 붉은 교차로로 복귀하며 이전 발자국은 유지됩니다.`);
     }
     return { ok: true };
   }
@@ -824,8 +836,10 @@ class GameEngine {
         img: m.img,
         hasCheese: m.hasCheese,
         delivered: m.delivered,
-        movedThisTurn: m.movedThisTurn
-        // pos, trail, log, pendingPos, cards are COMPLETELY OMITTED for Cats!
+        movedThisTurn: m.movedThisTurn,
+        usedCardCount: Object.values(m.cards).filter(v => !v).length,
+        totalCardCount: 3
+        // pos, trail, log, pendingPos, cards (types) are COMPLETELY OMITTED for Cats!
       }))
     };
   }
