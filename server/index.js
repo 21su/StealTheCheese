@@ -16,7 +16,6 @@ const io = new Server(server, {
 app.use(express.static(path.join(__dirname, '../public')));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size }));
 
-// Room store: roomCode -> room object
 const rooms = new Map();
 
 function makeRoomCode() {
@@ -59,10 +58,41 @@ function broadcastRoom(room) {
   });
 }
 
+function removePlayerFromRoom(socket) {
+  const code = socket.data?.roomCode;
+  const token = socket.data?.token;
+  if (!code || !token) return;
+  const room = rooms.get(code);
+  if (!room) return;
+
+  socket.leave(code);
+  room.players.delete(token);
+  room.seats.forEach(s => {
+    if (s.token === token) {
+      s.token = null;
+      s.playerName = null;
+      s.socketId = null;
+      s.isAI = true;
+    }
+  });
+  socket.data = {};
+
+  if (room.players.size === 0) {
+    rooms.delete(code);
+    return;
+  }
+  if (room.hostToken === token) {
+    const nextPlayer = room.players.values().next().value;
+    if (nextPlayer) room.hostToken = nextPlayer.token;
+  }
+  broadcastRoom(room);
+}
+
 io.on('connection', socket => {
   socket.emit('meta:cards', { CAT_CARDS, MOUSE_CARDS });
 
   socket.on('room:create', ({ playerName, token }) => {
+    removePlayerFromRoom(socket);
     const code = makeRoomCode();
     const pToken = token || crypto.randomBytes(8).toString('hex');
     const room = {
@@ -92,7 +122,6 @@ io.on('connection', socket => {
     if (!room) return socket.emit('room:error', '존재하지 않는 방 코드입니다.');
     const pToken = token || crypto.randomBytes(8).toString('hex');
 
-    // Reconnect check
     if (room.players.has(pToken)) {
       const existing = room.players.get(pToken);
       existing.socketId = socket.id;
@@ -117,6 +146,11 @@ io.on('connection', socket => {
     broadcastRoom(room);
   });
 
+  socket.on('room:leave', () => {
+    removePlayerFromRoom(socket);
+    socket.emit('room:left');
+  });
+
   socket.on('room:claimSeat', ({ seatKey }) => {
     const room = rooms.get(socket.data?.roomCode);
     if (!room || room.engine) return;
@@ -125,7 +159,6 @@ io.on('connection', socket => {
     const target = room.seats.find(s => s.seatKey === seatKey);
     if (!target || (target.token && target.token !== token)) return;
 
-    // Leave previous seat
     room.seats.forEach(s => {
       if (s.token === token) { s.token = null; s.playerName = null; s.socketId = null; s.isAI = true; }
     });
@@ -147,7 +180,6 @@ io.on('connection', socket => {
     broadcastRoom(room);
   });
 
-  // === GAME ACTIONS (VALIDATED BY TEAM ON SERVER) ===
   socket.on('game:action', payload => {
     const room = rooms.get(socket.data?.roomCode);
     if (!room || !room.engine) return;
@@ -172,7 +204,6 @@ io.on('connection', socket => {
     else broadcastRoom(room);
   });
 
-  // === TEAM / PUBLIC CHAT ===
   socket.on('chat:send', ({ channel, text }) => {
     const room = rooms.get(socket.data?.roomCode);
     if (!room || !text || !String(text).trim()) return;
