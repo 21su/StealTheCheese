@@ -12,7 +12,7 @@ let WALL_ADJ = {};
 
 const HOLES = [2, 9, 142, 149];
 const OPPOSITE_HOLE = { 2: 149, 149: 2, 9: 142, 142: 9 };
-const QUAD_NAMES = ['좌상(1구역)', '우상(2구역)', '좌하(3구역)', '우하(4구역)'];
+const QUAD_NAMES = ['A 구역', 'B 구역', 'C 구역', 'D 구역'];
 const QUAD_START_BLACKS = {
   0: [1, 2, 3, 11, 12, 13],
   1: [8, 9, 10, 18, 19, 20],
@@ -253,6 +253,7 @@ socket.on('room:left', () => {
   document.getElementById('entryForms').classList.remove('hidden');
   document.getElementById('waitingRoom').classList.add('hidden');
   document.getElementById('chatBox').innerHTML = '';
+  document.getElementById('topBanner').classList.add('hidden');
   showToast('방에서 나왔습니다.');
 });
 
@@ -424,12 +425,12 @@ function renderAll() {
   roleChip.textContent = me.team === 'mouse' ? '🐭 생쥐 팀 시점' : me.team === 'cat' ? '🐱 고양이 팀 시점' : '👀 관전';
   roleChip.className = `px-2.5 py-0.5 rounded-full text-xs font-bold ${me.team === 'mouse' ? 'bg-sky-500/20 text-sky-300' : 'bg-orange-500/20 text-orange-300'}`;
 
-  // 15-Turn Track
+  // 20-Turn Track
   const track = document.getElementById('turnTrack');
   track.innerHTML = '';
-  for (let t = 1; t <= 15; t++) {
+  for (let t = 1; t <= 20; t++) {
     const d = document.createElement('div');
-    d.className = `turn-pip border ${t === game.turn ? 'bg-amber-500 text-stone-950 border-amber-300' : 'bg-stone-900 text-stone-400 border-stone-700'}`;
+    d.className = `turn-pip border !w-5 !h-5 !text-[10px] ${t === game.turn ? 'bg-amber-500 text-stone-950 border-amber-300 scale-110' : 'bg-stone-900 text-stone-400 border-stone-700'}`;
     d.textContent = t;
     const marks = game.specialTrackMarks?.[t];
     if (marks?.length) {
@@ -441,6 +442,18 @@ function renderAll() {
     track.appendChild(d);
   }
 
+  const tb = document.getElementById('topBanner');
+  if (game.bannerEvent?.text) {
+    const toneCls = game.bannerEvent.tone === 'cheese'
+      ? 'bg-amber-500/95 text-stone-950 border-amber-300'
+      : game.bannerEvent.tone === 'mouse'
+      ? 'bg-sky-500/95 text-stone-950 border-sky-300'
+      : 'bg-orange-500/95 text-stone-950 border-orange-300';
+    tb.className = `sticky top-[52px] z-20 px-3 py-2 text-center text-xs sm:text-sm font-extrabold border-b shadow-lg ${toneCls}`;
+    tb.textContent = game.bannerEvent.text;
+  } else {
+    tb.classList.add('hidden');
+  }
   renderControls(game, me);
   document.getElementById('publicLog').innerHTML = game.publicLog.map(item =>
     `<div class="p-1.5 rounded bg-stone-900/70"><span class="text-amber-400 font-bold mr-1">[${item.turn}]</span>${item.msg}</div>`
@@ -715,6 +728,24 @@ function renderBoard() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (IMGS.board?.complete) ctx.drawImage(IMGS.board, 0, 0, canvas.width, canvas.height);
   if (!roomState?.game) return;
+
+  // Draw Quadrant Labels A, B, C, D
+  const qSc = canvas.width / GRAPH.width;
+  const qBadges = [
+    { label: 'A', x: 310, y: 310 },
+    { label: 'B', x: 940, y: 310 },
+    { label: 'C', x: 310, y: 930 },
+    { label: 'D', x: 940, y: 930 }
+  ];
+  ctx.save();
+  ctx.font = `900 ${Math.round(54 * qSc)}px Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  qBadges.forEach(q => {
+    ctx.fillStyle = 'rgba(120, 75, 30, 0.22)';
+    ctx.fillText(q.label, q.x * qSc, q.y * qSc);
+  });
+  ctx.restore();
 
   const { game, me } = roomState;
   const sc = canvas.width / GRAPH.width;

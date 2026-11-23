@@ -28,6 +28,9 @@
     </div>
   </header>
 
+  <!-- Global Top Announcement Banner (Cheese Stolen / Card Used) -->
+  <div id="topBanner" class="hidden sticky top-[52px] z-20 px-3 py-2 text-center text-xs sm:text-sm font-extrabold border-b shadow-lg transition-all"></div>
+
   <!-- Lobby Screen -->
   <section id="lobbyView" class="flex-1 flex items-center justify-center p-4">
     <div class="panel-card max-w-xl w-full p-6 space-y-5 border-amber-500/40">
@@ -160,16 +163,16 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="p-3 rounded-xl bg-sky-950/30 border border-sky-500/30">
             <h3 class="font-bold text-sky-300 mb-1">🐭 생쥐 팀 승리 조건 (2인 협동)</h3>
-            <p class="text-xs text-stone-300">매 라운드 15턴 내에 생쥐 A, B가 각각 치즈를 1개씩 훔쳐 <b>서로 다른 쥐구멍(2, 9, 142, 149)</b>으로 배달해야 합니다. 총 3라운드를 모두 완수하면 최종 승리합니다.</p>
+            <p class="text-xs text-stone-300">매 라운드 20턴 내에 생쥐 A, B가 각각 치즈를 1개씩 훔쳐 <b>서로 다른 쥐구멍(2, 9, 142, 149)</b>으로 배달해야 합니다. 총 3라운드를 모두 완수하면 최종 승리합니다.</p>
           </div>
           <div class="p-3 rounded-xl bg-orange-950/30 border border-orange-500/30">
             <h3 class="font-bold text-orange-300 mb-1">🐱 고양이 팀 승리 조건 (3인 협동)</h3>
-            <p class="text-xs text-stone-300">한 라운드 제한 턴(15턴) 내에 생쥐들이 배달을 끝내지 못하게 막거나, 활동 중인 생쥐 2마리 중 <b>1마리라도 포획</b>하면 즉시 승리합니다.</p>
+            <p class="text-xs text-stone-300">한 라운드 제한 턴(20턴) 내에 생쥐들이 배달을 끝내지 못하게 막거나, 활동 중인 생쥐 2마리 중 <b>1마리라도 포획</b>하면 즉시 승리합니다.</p>
           </div>
         </div>
         <div class="space-y-1.5 text-xs text-stone-300">
           <p><b class="text-amber-300">1단계 생쥐 이동:</b> 도로로 연결된 인접 칸 1곳으로 이동합니다. 고양이가 서 있는 교차로 통과 불가, 대기 불가, 두 생쥐 동일 칸 종료 불가. 특수 카드(질주/담넘기/쥐구멍 이동) 각 1회 사용 가능.</p>
-          <p><b class="text-amber-300">치즈 도난 & 배달:</b> 치즈 칸에 도착하면 즉시 공개 선언 및 치즈 도난 토큰 배치(위치 노출). 치즈를 들고 쥐구멍에 들어가면 배달 완료(다음 라운드까지 행동 종료 및 포획 면역).</p>
+          <p><b class="text-amber-300">치즈 도난 & 배달:</b> 치즈 칸에 도착하면 토큰을 놓지 않고 <b>해당 구역(A/B/C/D)의 치즈가 도둑맞았음</b>이 상단에 안내됩니다. 치즈를 들고 쥐구멍에 들어가면 배달 완료(다음 라운드까지 행동 종료 및 포획 면역).</p>
           <p><b class="text-amber-300">2단계 고양이 추격:</b> 3마리가 원하는 순서대로 교차로를 0~2칸 이동 후 ① 단서 수색(인접 칸 중 이번 라운드 생쥐가 지나간 곳에 발자국 공개) 또는 ② 포획 시도(인접 1칸 지목) 중 1개 실행.</p>
           <p><b class="text-amber-300">라운드 전환:</b> 1라운드 종료 시 실버 3장 중 1장, 2라운드 종료 시 골드 3장 중 1장을 드래프트해 장착합니다.</p>
         </div>
