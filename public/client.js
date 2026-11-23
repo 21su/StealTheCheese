@@ -26,7 +26,7 @@ let localUI = {
   selectedMouseCard: null,
   selectedCatId: null,
   catMoveEdge: null,
-  catMode: 'search', // 'search' | 'capture' | 'ability'
+  catMode: 'move', // 'move' | 'search' | 'capture' | 'ability'
   activeAbility: null, // { catId, cardId }
   controllingClone: false,
   draftCardIdx: null
@@ -226,12 +226,20 @@ socket.on('room:update', data => {
   }
   if (data.me?.team === 'cat' && data.me.seatIndex !== null && data.game?.phase === 'CAT_TURN') {
     const myCat = data.game.cats[data.me.seatIndex];
-    if (myCat && !myCat.actedThisTurn && localUI.selectedCatId !== data.me.seatIndex) {
-      localUI.selectedCatId = data.me.seatIndex;
-      localUI.catMoveEdge = myCat.edgeId;
+    if (myCat && !myCat.actedThisTurn) {
+      if (localUI.selectedCatId !== data.me.seatIndex) {
+        localUI.selectedCatId = data.me.seatIndex;
+        localUI.catMoveEdge = myCat.edgeId;
+        localUI.catMode = myCat.searchingThisTurn ? 'search' : 'move';
+      } else if (myCat.searchingThisTurn) {
+        localUI.catMoveEdge = myCat.edgeId;
+        localUI.catMode = 'search';
+      }
     } else if (myCat?.actedThisTurn) {
       localUI.selectedCatId = null;
       localUI.catMoveEdge = null;
+      localUI.catMode = 'move';
+      localUI.controllingClone = false;
     }
   }
   try { localStorage.setItem('stc_room', data.lobby.code); } catch {}
@@ -240,7 +248,7 @@ socket.on('room:update', data => {
 
 socket.on('room:left', () => {
   roomState = null;
-  localUI = { selectedMouseId: 0, selectedMouseCard: null, selectedCatId: null, catMoveEdge: null, catMode: 'search', draftCardIdx: null };
+  localUI = { selectedMouseId: 0, selectedMouseCard: null, selectedCatId: null, catMoveEdge: null, catMode: 'move', activeAbility: null, controllingClone: false, draftCardIdx: null };
   try { localStorage.removeItem('stc_room'); } catch {}
   document.getElementById('roomMeta').textContent = '실시간 서버 연결됨';
   document.getElementById('roundBadge').classList.add('hidden');
@@ -565,8 +573,12 @@ function renderControls(game, me) {
   } else if (game.phase === 'CAT_TURN') {
     inst.textContent = me.team === 'cat'
       ? (localUI.selectedCatId === null
-        ? '행동할 고양이를 선택하면 이동 가능한 교차로가 주황색으로 표시됩니다.'
-        : '주황색 교차로를 클릭해 이동한 뒤, 아래 [단서 수색] 또는 [포획 시도]를 실행하세요.')
+        ? '본인 고양이를 선택하면 이동 가능한 교차로가 주황색으로 표시됩니다.'
+        : localUI.catMode === 'search'
+        ? '🔍 단서 수색 중: 초록색으로 표시된 인접 칸을 한 칸씩 클릭해 차례대로 탐색하세요 (발견 시 즉시 종료!).'
+        : localUI.catMode === 'capture'
+        ? '🎯 포획 시도: 빨간색으로 표시된 인접 칸 1곳을 클릭하세요!'
+        : '주황색 교차로를 클릭해 이동(0~2칸)한 뒤, 아래 [단서 수색] 또는 [포획 시도] 버튼을 누르세요.')
       : '고양이 팀이 추격 중입니다...';
     if (me.team !== 'cat') {
       el.innerHTML = `
@@ -604,10 +616,18 @@ function renderControls(game, me) {
         ${!localUI.controllingClone && game.cats[localUI.selectedCatId]?.sprintMode ? `
           <button onclick="execCatSprintOnly()" class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-xs">💨 [날쌘 걸음] 3칸 이동 확정 (행동 없음)</button>
         ` : `
-          <div class="grid grid-cols-2 gap-2 pt-1">
-            <button onclick="execCatSearch()" class="py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-extrabold text-xs">🔍 ${localUI.controllingClone ? '분신 ' : ''}인접 전체 수색</button>
-            <button ${!localUI.controllingClone && catHasCard(game.cats[localUI.selectedCatId], 'gold_2') ? 'disabled' : ''} onclick="setCatCaptureMode()" class="py-2 rounded-lg ${localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40'} font-extrabold text-xs ${!localUI.controllingClone && catHasCard(game.cats[localUI.selectedCatId], 'gold_2') ? 'opacity-40 cursor-not-allowed' : ''}">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 대상 클릭</button>
-          </div>
+          ${game.cats[localUI.selectedCatId]?.searchingThisTurn ? `
+            <div class="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-400/60 space-y-2">
+              <div class="text-xs font-bold text-emerald-300">🔍 한 칸씩 단서 수색 진행 중 (발자국 발견 시 즉시 종료)</div>
+              <div class="text-[11px] text-stone-300">초록색 칸을 클릭해 계속 탐색하거나 수색을 마칠 수 있습니다.</div>
+              <button onclick="endCatSearchEarly()" class="w-full py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs">수색 그만하기 (턴 종료)</button>
+            </div>
+          ` : `
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              <button onclick="setCatSearchMode()" class="py-2 rounded-lg ${localUI.catMode === 'search' ? 'bg-emerald-500 text-stone-950' : 'bg-stone-800 hover:bg-stone-700 text-emerald-300 border border-emerald-500/40'} font-extrabold text-xs">🔍 ${localUI.controllingClone ? '분신 ' : ''}단서 수색 (한 칸씩)</button>
+              <button ${!localUI.controllingClone && catHasCard(game.cats[localUI.selectedCatId], 'gold_2') ? 'disabled' : ''} onclick="setCatCaptureMode()" class="py-2 rounded-lg ${localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40'} font-extrabold text-xs ${!localUI.controllingClone && catHasCard(game.cats[localUI.selectedCatId], 'gold_2') ? 'opacity-40 cursor-not-allowed' : ''}">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
+            </div>
+          `}
         `}` : `<div class="text-[11px] text-stone-400">행동할 고양이를 선택하면 이동 범위 가이드라인과 카드 [발동] 버튼이 활성화됩니다.</div>`}
     `;
   } else if (game.phase === 'DRAFT') {
@@ -631,10 +651,10 @@ function renderControls(game, me) {
 window.pickMouse = id => { if (roomState?.me?.seatIndex !== id) { showToast('본인의 생쥐 말만 움직일 수 있습니다!'); return; } localUI.selectedMouseId = id; localUI.selectedMouseCard = null; renderAll(); };
 window.toggleMCard = cid => { localUI.selectedMouseCard = localUI.selectedMouseCard === cid ? null : cid; renderAll(); };
 window.confirmMouse = () => socket.emit('game:action', { type: 'confirmMouseTurn' });
-window.pickCat = id => { if (roomState?.me?.seatIndex !== id) { showToast('본인의 고양이 말만 움직일 수 있습니다!'); return; } localUI.selectedCatId = id; localUI.catMoveEdge = roomState.game.cats[id].edgeId; localUI.catMode = 'search'; renderAll(); };
+window.pickCat = id => { if (roomState?.me?.seatIndex !== id) { showToast('본인의 고양이 말만 움직일 수 있습니다!'); return; } localUI.selectedCatId = id; localUI.catMoveEdge = roomState.game.cats[id].edgeId; localUI.catMode = roomState.game.cats[id].searchingThisTurn ? 'search' : 'move'; renderAll(); };
 window.setCatCaptureMode = () => { localUI.catMode = 'capture'; showToast('빨간색으로 표시된 인접 원형 칸 중 1곳을 클릭하세요!'); renderAll(); };
 window.cancelCatAbility = () => {
-  localUI.catMode = 'search';
+  localUI.catMode = 'move';
   localUI.activeAbility = null;
   renderAll();
 };
@@ -653,7 +673,7 @@ window.useCatAbility = (catId, cardId) => {
   if (cardId === 'gold_4') {
     socket.emit('game:action', { type: 'catAction', catId, ability: { cardId: 'gold_4' } });
     localUI.controllingClone = true;
-    localUI.catMode = 'search';
+    localUI.catMode = 'move';
     localUI.catMoveEdge = roomState.game.cloneCat?.edgeId ?? roomState.game.cats[catId].edgeId;
     showToast('🥷 분신 고양이 소환! 보라색 교차로로 이동 후 수색/포획하세요.');
     renderAll();
@@ -677,12 +697,14 @@ window.execCatSprintOnly = () => {
   localUI.selectedCatId = null; localUI.catMoveEdge = null; localUI.catMode = 'search'; localUI.controllingClone = false;
 };
 
-window.execCatSearch = () => {
-  const cat = roomState.game.cats[localUI.selectedCatId];
-  const isClone = localUI.controllingClone;
-  const targets = getCatAdjacentNodes(localUI.catMoveEdge, !isClone && catHasLonelyBonus(roomState.game, cat));
-  socket.emit('game:action', { type: 'catAction', catId: localUI.selectedCatId, edgeId: localUI.catMoveEdge, actionType: 'search', targetNodes: targets, isClone });
-  localUI.selectedCatId = null; localUI.catMoveEdge = null; localUI.catMode = 'search'; localUI.controllingClone = false;
+window.setCatSearchMode = () => {
+  localUI.catMode = 'search';
+  showToast('🔍 초록색으로 표시된 주변 칸을 한 칸씩 클릭해 탐색하세요!');
+  renderAll();
+};
+window.endCatSearchEarly = () => {
+  socket.emit('game:action', { type: 'catAction', catId: localUI.selectedCatId, edgeId: localUI.catMoveEdge, actionType: 'searchEnd', isClone: localUI.controllingClone });
+  localUI.selectedCatId = null; localUI.catMoveEdge = null; localUI.catMode = 'move'; localUI.controllingClone = false;
 };
 window.pickDraft = idx => { localUI.draftCardIdx = idx; renderAll(); };
 window.equipDraft = catId => {
@@ -800,19 +822,26 @@ function renderBoard() {
       }
     } else {
       const isClone = localUI.controllingClone;
-      const reachable = isClone ? getCloneReachableEdges(game) : getCatReachableEdges(game, localUI.selectedCatId);
-      reachable.forEach(eid => {
-        const isChosen = (eid === localUI.catMoveEdge);
-        const col = isChosen ? '#facc15' : (isClone ? '#c084fc' : '#fb923c');
-        const fill = isChosen ? 'rgba(250,204,21,0.38)' : (isClone ? 'rgba(192,132,252,0.32)' : 'rgba(251,146,60,0.32)');
-        drawRing(EDGES[eid].x, EDGES[eid].y, isChosen ? 21 : 14, col, fill, isChosen ? 4 : 3);
-      });
-      if (localUI.catMoveEdge !== null) {
-        const cat = game.cats[localUI.selectedCatId];
+      const cat = game.cats[localUI.selectedCatId];
+      if (!cat?.searchingThisTurn) {
+        const reachable = isClone ? getCloneReachableEdges(game) : getCatReachableEdges(game, localUI.selectedCatId);
+        reachable.forEach(eid => {
+          const isChosen = (eid === localUI.catMoveEdge);
+          const col = isChosen ? '#facc15' : (isClone ? '#c084fc' : '#fb923c');
+          const fill = isChosen ? 'rgba(250,204,21,0.38)' : (isClone ? 'rgba(192,132,252,0.32)' : 'rgba(251,146,60,0.32)');
+          drawRing(EDGES[eid].x, EDGES[eid].y, isChosen ? 21 : 14, col, fill, isChosen ? 4 : 3);
+        });
+      }
+      if (localUI.catMoveEdge !== null && (localUI.catMode === 'search' || localUI.catMode === 'capture')) {
         const adjNodes = getCatAdjacentNodes(localUI.catMoveEdge, !isClone && catHasLonelyBonus(game, cat));
+        const searched = new Set(cat?.searchedNodes || []);
         const isCap = (localUI.catMode === 'capture');
         adjNodes.forEach(nid => {
-          drawRing(NODES[nid].x, NODES[nid].y, 24, isCap ? '#ef4444' : '#4ade80', isCap ? 'rgba(239,68,68,0.32)' : 'rgba(74,222,128,0.26)', 4);
+          if (!isCap && searched.has(nid)) {
+            drawRing(NODES[nid].x, NODES[nid].y, 22, '#78716c', 'rgba(120,113,108,0.35)', 3);
+          } else {
+            drawRing(NODES[nid].x, NODES[nid].y, 24, isCap ? '#ef4444' : '#4ade80', isCap ? 'rgba(239,68,68,0.32)' : 'rgba(74,222,128,0.32)', 4);
+          }
         });
       }
     }
@@ -866,7 +895,7 @@ function renderBoard() {
 
 function findHit(bx, by) {
   const g = roomState?.game;
-  const preferEdge = (g && (g.phase === 'SETUP_CATS' || (g.phase === 'CAT_TURN' && localUI.catMode !== 'capture' && !(localUI.catMode === 'ability' && ['bronze_3','silver_2'].includes(localUI.activeAbility?.cardId)))));
+  const preferEdge = (g && (g.phase === 'SETUP_CATS' || (g.phase === 'CAT_TURN' && localUI.catMode === 'move') || (g.phase === 'CAT_TURN' && localUI.catMode === 'ability' && ['bronze_1','bronze_5'].includes(localUI.activeAbility?.cardId))));
   let hitNode = null, nd = 28;
   GRAPH.nodes.forEach(n => { const d = Math.hypot(n.x - bx, n.y - by); if (d < nd) { nd = d; hitNode = n.id; } });
   let hitEdge = null, ed = 24;
@@ -933,10 +962,18 @@ canvas.addEventListener('click', ev => {
       showToast('하이라이트된 올바른 대상을 클릭하세요.');
       return;
     }
+    if (localUI.catMode === 'search' && localUI.selectedCatId !== null && localUI.catMoveEdge !== null && hit.kind === 'node') {
+      socket.emit('game:action', { type: 'catAction', catId: localUI.selectedCatId, edgeId: localUI.catMoveEdge, actionType: 'searchStep', targetNodes: [hit.id], isClone: localUI.controllingClone });
+      return;
+    }
     if (localUI.catMode === 'capture' && localUI.selectedCatId !== null && localUI.catMoveEdge !== null && hit.kind === 'node') {
       socket.emit('game:action', { type: 'catAction', catId: localUI.selectedCatId, edgeId: localUI.catMoveEdge, actionType: 'capture', targetNodes: [hit.id], isClone: localUI.controllingClone });
-      localUI.selectedCatId = null; localUI.catMoveEdge = null; localUI.catMode = 'search'; localUI.controllingClone = false;
+      localUI.selectedCatId = null; localUI.catMoveEdge = null; localUI.catMode = 'move'; localUI.controllingClone = false;
     } else if (hit.kind === 'edge') {
+      if (game.cats[localUI.selectedCatId]?.searchingThisTurn) {
+        showToast('이미 수색을 시작했습니다. 초록색 칸을 클릭해 수색을 이어가세요.');
+        return;
+      }
       if (localUI.selectedCatId === null) {
         const c = game.cats.find(x => x.id === me.seatIndex && x.edgeId === hit.id && !x.actedThisTurn);
         if (c) { pickCat(c.id); return; }
