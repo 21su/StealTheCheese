@@ -1373,11 +1373,11 @@ function renderBoard() {
         });
       }
       if (localUI.catMoveEdge !== null && (localUI.catMode === 'search' || localUI.catMode === 'capture')) {
+        const isCap = (localUI.catMode === 'capture');
         const baseAdj = getCatAdjacentNodes(localUI.catMoveEdge, false);
         const lonelyExtra = (!isClone && !isCap) ? getClientLonelyExtraNodes(game, cat, localUI.catMoveEdge) : [];
         const adjNodes = Array.from(new Set([...baseAdj, ...lonelyExtra]));
         const searched = new Set(cat?.searchedNodes || []);
-        const isCap = (localUI.catMode === 'capture');
         adjNodes.forEach(nid => {
           if (!isCap && searched.has(nid)) {
             drawRing(NODES[nid].x, NODES[nid].y, 22, '#78716c', 'rgba(120,113,108,0.35)', 3);
