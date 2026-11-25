@@ -209,6 +209,26 @@ class GameEngine {
     return s;
   }
 
+  getCatDisplayName(cat) {
+    if (!cat) return '고양이';
+    const base = `고양이 ${cat.id + 1}`;
+    return (cat.name && cat.name !== base) ? `${base} (${cat.name})` : base;
+  }
+
+  getMouseDisplayName(m) {
+    if (!m) return '생쥐';
+    const base = m.id === 0 ? '생쥐 A' : '생쥐 B';
+    return (m.name && m.name !== base) ? `${base} (${m.name})` : base;
+  }
+
+  getSprintMidNode(fromNode, toNode, blocked = null) {
+    for (const { to: mid } of NODE_ADJ[fromNode] || []) {
+      if (mid === blocked) continue;
+      if ((NODE_ADJ[mid] || []).some(x => x.to === toNode)) return mid;
+    }
+    return null;
+  }
+
   getEdgeQuadrant(edgeId) {
     const e = EDGES[edgeId];
     if (!e) return 0;
@@ -455,6 +475,11 @@ class GameEngine {
       if (m.delivered || m.pendingPos === null) return;
       const prev = m.pos;
       m.pos = m.pendingPos;
+      if (m.pendingCard === 'sprint') {
+        const blocked = (this.state.blockedNode && this.state.blockedNodeRound === this.state.round) ? this.state.blockedNode : null;
+        const mid = this.getSprintMidNode(prev, m.pos, blocked);
+        if (mid !== null) m.trail.push(mid);
+      }
       m.trail.push(m.pos);
       let cardNote = '';
       if (m.pendingCard) {
@@ -654,7 +679,7 @@ class GameEngine {
     const baseAdj = this.getCatAdjacentNodes(edgeId, false);
     const lonelyExtra = !isClone ? this.getCatLonelyExtraNodes(cat) : [];
     const allowedSearch = Array.from(new Set([...baseAdj, ...lonelyExtra]));
-    const actorName = isClone ? '분신 고양이' : cat.name;
+    const actorName = isClone ? '분신 고양이' : this.getCatDisplayName(cat);
 
     if (actionType === 'searchStep') {
       const nid = targetNodes[0];
@@ -669,7 +694,7 @@ class GameEngine {
 
       const activeTrails = new Set();
       this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(t => activeTrails.add(t)); });
-      this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, round: this.state.round, turn: this.state.turn });
+      this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, catId: isClone ? -1 : catId, round: this.state.round, turn: this.state.turn });
       if (activeTrails.has(nid)) {
         if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
           this.state.cluesCurrent.push(nid);
@@ -707,7 +732,7 @@ class GameEngine {
       const checked = [];
       for (const nid of validTargets) {
         checked.push(nid);
-        this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, round: this.state.round, turn: this.state.turn });
+        this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, catId: isClone ? -1 : catId, round: this.state.round, turn: this.state.turn });
         if (activeTrails.has(nid)) {
           hitNode = nid;
           if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {

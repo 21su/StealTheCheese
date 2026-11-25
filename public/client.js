@@ -137,6 +137,52 @@ function getCatOccupiedEdges(game, excludeCatId = -1) {
   return s;
 }
 
+function getCatDisplayName(cat) {
+  if (!cat) return '고양이';
+  const base = `고양이 ${cat.id + 1}`;
+  return (cat.name && cat.name !== base) ? `${base} (${cat.name})` : base;
+}
+
+function getMouseDisplayName(m) {
+  if (!m) return '생쥐';
+  const base = m.id === 0 ? '생쥐 A' : '생쥐 B';
+  return (m.name && m.name !== base) ? `${base} (${m.name})` : base;
+}
+
+function getClientSprintMidNode(fromNode, toNode, blocked = null) {
+  for (const { to: mid } of NODE_ADJ[fromNode] || []) {
+    if (mid === blocked) continue;
+    if ((NODE_ADJ[mid] || []).some(x => x.to === toNode)) return mid;
+  }
+  return null;
+}
+
+function getClientEdgePath(startEdgeId, targetEdgeId, maxSteps = 4) {
+  if (startEdgeId === null || targetEdgeId === null) return [];
+  if (startEdgeId === targetEdgeId) return [startEdgeId];
+  const parent = { [startEdgeId]: null };
+  const dist = { [startEdgeId]: 0 };
+  const q = [startEdgeId];
+  while (q.length) {
+    const cur = q.shift();
+    if (dist[cur] >= maxSteps) continue;
+    for (const nxt of EDGE_ADJ[cur] || []) {
+      if (dist[nxt] === undefined) {
+        dist[nxt] = dist[cur] + 1;
+        parent[nxt] = cur;
+        if (nxt === targetEdgeId) {
+          const path = [];
+          let p = nxt;
+          while (p !== null) { path.push(p); p = parent[p]; }
+          return path.reverse();
+        }
+        q.push(nxt);
+      }
+    }
+  }
+  return [startEdgeId, targetEdgeId];
+}
+
 function getClientEdgeQuadrant(edgeId) {
   const e = EDGES[edgeId];
   if (!e) return 0;
@@ -407,11 +453,24 @@ function renderCatChecksPanel(game) {
   }
 
   const rawItems = game.catCheckedNodes || [];
-  // Reverse so newest check is ALWAYS at the top / front
   const newestFirst = [...rawItems].reverse();
-  const catNames = (game.cats || []).map(c => c.name);
-  const extraActors = Array.from(new Set(newestFirst.map(it => it.by).filter(n => n && !catNames.includes(n))));
-  const allActors = [...catNames, ...extraActors];
+  const getCheckKey = it => {
+    if (it.catId === -1) return 'clone';
+    if (it.catId !== undefined && it.catId !== null) return `cat_${it.catId}`;
+    return `name_${it.by || '고양이'}`;
+  };
+  const getCheckLabel = key => {
+    if (key === 'clone') return '분신 고양이';
+    if (key.startsWith('cat_')) {
+      const cid = Number(key.slice(4));
+      return getCatDisplayName(game.cats?.[cid]) || `고양이 ${cid + 1}`;
+    }
+    return key.replace(/^name_/, '');
+  };
+  const catTabs = (game.cats || []).map(c => ({ key: `cat_${c.id}`, label: getCatDisplayName(c) }));
+  if (game.cloneCat?.active || newestFirst.some(it => it.catId === -1)) {
+    catTabs.push({ key: 'clone', label: '분신 고양이' });
+  }
 
   if (!enabled) {
     cnt.textContent = '사용 안 함 (OFF)';
@@ -422,8 +481,8 @@ function renderCatChecksPanel(game) {
   list.classList.remove('hidden');
   if (filterBar) {
     filterBar.classList.remove('hidden');
-    const tabs = [{ key: 'all', label: '전체' }, ...allActors.map(n => ({ key: n, label: n }))];
-    if (localUI.catChecksFilter !== 'all' && !allActors.includes(localUI.catChecksFilter)) {
+    const tabs = [{ key: 'all', label: '전체' }, ...catTabs];
+    if (localUI.catChecksFilter !== 'all' && !tabs.some(t => t.key === localUI.catChecksFilter)) {
       localUI.catChecksFilter = 'all';
     }
     filterBar.innerHTML = tabs.map(t => {
@@ -437,9 +496,10 @@ function renderCatChecksPanel(game) {
 
   const filtered = localUI.catChecksFilter === 'all'
     ? newestFirst
-    : newestFirst.filter(it => it.by === localUI.catChecksFilter);
+    : newestFirst.filter(it => getCheckKey(it) === localUI.catChecksFilter);
 
-  cnt.textContent = `${localUI.catChecksFilter === 'all' ? '전체' : localUI.catChecksFilter} ${filtered.length}건${game.showCatChecks ? ' · 보드 원 ON' : ''}`;
+  const filterLabel = localUI.catChecksFilter === 'all' ? '전체' : getCheckLabel(localUI.catChecksFilter);
+  cnt.textContent = `${filterLabel} ${filtered.length}건${game.showCatChecks ? ' · 보드 원 ON' : ''}`;
   if (!filtered.length) {
     list.innerHTML = '<div class="text-stone-500 py-1">아직 탐지한 칸이 없습니다.</div>';
     return;
@@ -448,24 +508,24 @@ function renderCatChecksPanel(game) {
   const renderBadge = it => {
     const r = it.round || 1;
     const isCur = r === game.round;
+    const actorLbl = getCheckLabel(getCheckKey(it));
     const cls = it.hit
       ? (isCur ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200' : 'bg-emerald-950/50 border-emerald-700/60 text-emerald-300/80')
       : (isCur ? 'bg-stone-800/90 border-stone-500 text-stone-200' : 'bg-stone-900/80 border-stone-700 text-stone-400');
-    return `<span title="${r}라운드 ${it.turn}턴 · ${it.by} — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-1.5 py-0.5 rounded font-bold border ${cls}"><span class="opacity-70 mr-0.5">${r}R·${it.turn}T</span>#${it.nodeId}${it.hit ? ' 🐾' : ''}</span>`;
+    return `<span title="${r}라운드 ${it.turn}턴 · ${actorLbl} — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-1.5 py-0.5 rounded font-bold border ${cls}"><span class="opacity-70 mr-0.5">${r}R·${it.turn}T</span>#${it.nodeId}${it.hit ? ' 🐾' : ''}</span>`;
   };
 
   if (localUI.catChecksFilter === 'all') {
-    // Group by cat (only actors with checks, newest actor activity on top, newest check first inside each cat)
     const groups = new Map();
     filtered.forEach(it => {
-      const k = it.by || '고양이';
+      const k = getCheckKey(it);
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(it);
     });
-    list.innerHTML = Array.from(groups.entries()).map(([actor, arr]) => `
+    list.innerHTML = Array.from(groups.entries()).map(([k, arr]) => `
       <div class="p-2 rounded-lg bg-stone-950/65 border border-stone-800 space-y-1">
         <div class="flex items-center justify-between text-[10px]">
-          <span class="font-extrabold text-orange-300">🐱 ${actor}</span>
+          <span class="font-extrabold text-orange-300">🐱 ${getCheckLabel(k)}</span>
           <span class="text-stone-400">${arr.length}건 (최신순)</span>
         </div>
         <div class="flex flex-wrap gap-1">${arr.map(renderBadge).join('')}</div>
@@ -662,7 +722,7 @@ function renderSideDrawer(game, me) {
         return `
           <div class="p-2.5 rounded-xl bg-stone-900/80 border border-stone-700 space-y-1.5">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-white">${m.name}</span>
+              <span class="text-xs font-bold text-white">${getMouseDisplayName(m)}</span>
               <span class="text-[11px] font-bold ${usedCnt > 0 ? 'text-amber-300' : 'text-stone-400'}">${usedCnt} / ${totalCnt}장 사용 (${totalCnt - usedCnt}장 남음)</span>
             </div>
             ${showMouseCardTypes && m.cards ? `
@@ -673,8 +733,9 @@ function renderSideDrawer(game, me) {
                 }).join('')}
               </div>
             ` : `
-              <div class="flex gap-1">
-                ${[0, 1, 2, 3].map(i => `<span class="flex-1 text-center py-0.5 rounded text-[10px] font-bold border ${i < usedCnt ? 'bg-amber-500/20 border-amber-400/60 text-amber-300' : 'bg-stone-800 border-stone-700 text-stone-400'}">${i < usedCnt ? '사용됨(비공개)' : '미사용'}</span>`).join('')}
+              <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-stone-950/70 border border-stone-800 text-[11px]">
+                <span class="text-amber-300 font-bold">🃏 비공개 사용: ${usedCnt}장</span>
+                <span class="text-stone-400 font-semibold">미사용 잔여: ${totalCnt - usedCnt}장</span>
               </div>
             `}
           </div>`;
@@ -690,7 +751,7 @@ function renderSideDrawer(game, me) {
       ${game.cats.map(c => `
         <div class="p-2.5 rounded-xl bg-stone-900/80 border border-stone-700 space-y-1.5">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-white">${c.name}</span>
+            <span class="text-xs font-bold text-white">${getCatDisplayName(c)}</span>
             <span class="text-[10px] text-stone-400">총 ${(c.cards || []).length}장 장착</span>
           </div>
           <div class="space-y-1">
@@ -984,7 +1045,7 @@ function renderControls(game, me) {
         <div class="text-xs font-bold text-orange-300">고양이 초기 브론즈 증강 (클릭하면 카드 설명 확인)</div>
         ${game.cats.map(c => `
           <div class="p-2 rounded-xl bg-stone-900/70 border border-stone-700 flex items-center justify-between gap-2">
-            <span class="text-xs font-bold text-white">${c.name}</span>
+            <span class="text-xs font-bold text-white">${getCatDisplayName(c)}</span>
             <div class="flex flex-wrap gap-1">${renderCatCardBadges(c)}</div>
           </div>`).join('')}
       </div>`;
@@ -1010,7 +1071,7 @@ function renderControls(game, me) {
           return `
           <button type="button" ${!isMine || m.delivered ? 'disabled' : ''} onclick="pickMouse(${m.id})" class="p-2 rounded-xl border text-left transition ${isMine ? (isSel ? 'bg-sky-500/25 border-sky-400 ring-1 ring-sky-300' : 'bg-stone-900 border-stone-600 hover:border-sky-400/70') : 'bg-stone-900/60 border-stone-800 opacity-70 cursor-not-allowed'}">
             <div class="text-xs font-bold text-white flex items-center justify-between gap-1">
-              <span class="truncate">${m.name}</span>
+              <span class="truncate">${getMouseDisplayName(m)}</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${isMine ? 'bg-sky-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? (isSel ? '조종 중' : '내 말') : (m.isAI ? '🤖 AI' : '팀원 말')}</span>
             </div>
             <div class="text-[11px] text-amber-300 mt-0.5">${m.delivered ? '🕳️ 배달 완료' : m.movedThisTurn ? `✓ #${m.pendingPos} 예정` : `현재 #${m.pos}`}</div>
@@ -1086,7 +1147,7 @@ function renderControls(game, me) {
           return `
           <div onclick="${(!isMine || c.actedThisTurn) ? '' : `pickCat(${c.id})`}" class="p-2 rounded-xl border transition ${c.actedThisTurn ? 'bg-stone-900/40 border-stone-800 opacity-45' : isMine ? (localUI.selectedCatId === c.id ? 'bg-orange-500/25 border-orange-400 ring-1 ring-orange-300 cursor-pointer' : 'bg-orange-500/15 border-orange-500/60 cursor-pointer') : 'bg-stone-900/60 border-stone-800 opacity-75'}">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-white">${c.name} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap ${isMine ? 'bg-orange-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? '내 말' : (c.isAI ? 'AI 팀원' : '팀원 말')}</span></span>
+              <span class="text-xs font-bold text-white">${getCatDisplayName(c)} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap ${isMine ? 'bg-orange-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? '내 말' : (c.isAI ? 'AI 팀원' : '팀원 말')}</span></span>
               <span class="text-[11px] text-amber-300">${c.actedThisTurn ? '✓ 완료' : isMine ? '● 이동·행동 가능' : '조작 불가'}</span>
             </div>
             <div class="mt-1 flex flex-wrap gap-1">${renderCatCardBadges(c, isMine && !c.actedThisTurn)}</div>
@@ -1104,7 +1165,7 @@ function renderControls(game, me) {
     el.innerHTML = `
       <div class="space-y-2.5">
         <div class="flex flex-wrap gap-1.5 text-[11px]">
-          ${game.cats.map(c => `<span class="px-2 py-0.5 rounded-full border font-bold ${picked.has(c.id) ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300' : 'bg-stone-900 border-stone-700 text-stone-300'}">${c.name} ${picked.has(c.id) ? '✓ 완료' : '대기'}</span>`).join('')}
+          ${game.cats.map(c => `<span class="px-2 py-0.5 rounded-full border font-bold ${picked.has(c.id) ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300' : 'bg-stone-900 border-stone-700 text-stone-300'}">${getCatDisplayName(c)} ${picked.has(c.id) ? '✓ 완료' : '대기'}</span>`).join('')}
         </div>
         ${myUnpickedCats.length ? `
           <div class="grid grid-cols-3 gap-2">
@@ -1419,6 +1480,43 @@ function renderBoard() {
     ctx.fillText('🧀', n.x * sc, n.y * sc);
   });
   game.mice.forEach(m => {
+    // Draw pending move preview path (2-segment path when sprint jumps 2 spaces!)
+    if (game.phase === 'MOUSE_TURN' && me.team === 'mouse' && m.pendingPos !== null && m.pos !== null && m.pendingPos !== m.pos) {
+      const blocked = (game.blockedNode && game.blockedNodeRound === game.round) ? game.blockedNode : null;
+      const pts = [m.pos];
+      if (m.pendingCard === 'sprint') {
+        const mid = getClientSprintMidNode(m.pos, m.pendingPos, blocked);
+        if (mid !== null) pts.push(mid);
+      }
+      pts.push(m.pendingPos);
+      ctx.save();
+      ctx.strokeStyle = m.id === 0 ? 'rgba(56,189,248,0.85)' : 'rgba(168,85,247,0.85)';
+      ctx.lineWidth = 4 * sc;
+      ctx.setLineDash([7 * sc, 5 * sc]);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach((nid, idx) => {
+        const pt = NODES[nid];
+        if (!pt) return;
+        if (idx === 0) ctx.moveTo(pt.x * sc, pt.y * sc);
+        else ctx.lineTo(pt.x * sc, pt.y * sc);
+      });
+      ctx.stroke();
+      // Draw intermediate waypoint dot when moving 2 spaces
+      if (pts.length === 3 && NODES[pts[1]]) {
+        const mp = NODES[pts[1]];
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(mp.x * sc, mp.y * sc, 7 * sc, 0, Math.PI * 2);
+        ctx.fillStyle = '#facc15';
+        ctx.fill();
+        ctx.lineWidth = 2 * sc;
+        ctx.strokeStyle = '#1c1917';
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     const p = m.pendingPos ?? m.pos;
     if (!p) return;
     const n = NODES[p];
@@ -1427,7 +1525,43 @@ function renderBoard() {
     drawSprite(m.img, n.x, n.y, 38);
   });
 
-  // 4. Cats
+  // 4. Cat Movement Path Preview + Cats
+  if (game.phase === 'CAT_TURN' && me.team === 'cat' && localUI.selectedCatId !== null && localUI.catMoveEdge !== null) {
+    const startEid = localUI.controllingClone ? game.cloneCat?.edgeId : game.cats[localUI.selectedCatId]?.edgeId;
+    if (startEid !== null && startEid !== undefined && localUI.catMoveEdge !== startEid) {
+      const path = getClientEdgePath(startEid, localUI.catMoveEdge, 4);
+      if (path.length >= 2) {
+        ctx.save();
+        ctx.strokeStyle = localUI.controllingClone ? 'rgba(192,132,252,0.92)' : 'rgba(250,204,21,0.92)';
+        ctx.lineWidth = 4.5 * sc;
+        ctx.setLineDash([7 * sc, 5 * sc]);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        path.forEach((eid, idx) => {
+          const ep = EDGES[eid];
+          if (!ep) return;
+          if (idx === 0) ctx.moveTo(ep.x * sc, ep.y * sc);
+          else ctx.lineTo(ep.x * sc, ep.y * sc);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Draw step dots along the path
+        path.slice(0, -1).forEach((eid, idx) => {
+          const ep = EDGES[eid];
+          if (!ep) return;
+          ctx.beginPath();
+          ctx.arc(ep.x * sc, ep.y * sc, (idx === 0 ? 5 : 6) * sc, 0, Math.PI * 2);
+          ctx.fillStyle = idx === 0 ? 'rgba(255,255,255,0.8)' : (localUI.controllingClone ? '#c084fc' : '#fb923c');
+          ctx.fill();
+          ctx.lineWidth = 2 * sc;
+          ctx.strokeStyle = '#1c1917';
+          ctx.stroke();
+        });
+        ctx.restore();
+      }
+    }
+  }
   game.cats.forEach(c => {
     if (c.edgeId === null) return;
     const drawEdge = (game.phase === 'CAT_TURN' && me.team === 'cat' && localUI.selectedCatId === c.id && localUI.catMoveEdge !== null)
