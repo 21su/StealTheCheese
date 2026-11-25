@@ -732,6 +732,59 @@ class GameEngine {
     for (let i = 0; i < 3 && deck.length; i++) this.state.draftOptions.push(deck.pop());
   }
 
+  grantCatCard(cat, card) {
+    if (card.id === 'silver_3') {
+      // 양보단 질: 브론즈 카드 1장 제거 + 골드 카드 1장 획득 (즉시 소모)
+      const bIdx = cat.cards.findIndex(c => c.tier === 'bronze');
+      const removed = bIdx >= 0 ? cat.cards.splice(bIdx, 1)[0] : null;
+      const gCard = this.state.decks.gold.length ? this.state.decks.gold.pop() : null;
+      if (gCard) {
+        const msg = `🌟 ${cat.name} [양보단 질] 발동! ${removed ? `브론즈 [${removed.name}] 제거 → ` : ''}골드 [${gCard.name}] 획득!`;
+        this.addLog(msg);
+        this.setBanner(msg, 'cat');
+        this.setActionPopup(msg, 'found');
+        this.grantCatCard(cat, gCard);
+      } else {
+        const msg = `🌟 ${cat.name} [양보단 질] 발동! (남은 골드 카드가 없습니다)`;
+        this.addLog(msg);
+        this.setActionPopup(msg, 'info');
+      }
+      return;
+    }
+    if (card.id === 'silver_4') {
+      // 질보단 양: 남은 브론즈 카드 최대 2장 획득 (즉시 소모)
+      const gained = [];
+      for (let i = 0; i < 2 && this.state.decks.bronze.length; i++) {
+        const bc = this.state.decks.bronze.pop();
+        gained.push(bc);
+        cat.cards.push(bc);
+      }
+      const msg = gained.length
+        ? `📦 ${cat.name} [질보단 양] 발동! 브론즈 [${gained.map(c => c.name).join(', ')}] 획득!`
+        : `📦 ${cat.name} [질보단 양] 발동! (남은 브론즈 카드 없음)`;
+      this.addLog(msg);
+      this.setBanner(msg, 'cat');
+      this.setActionPopup(msg, 'found');
+      return;
+    }
+    if (card.id === 'gold_3') {
+      // 질보단 양 II: 남은 실버 카드 최대 2장 획득 (획득한 카드에 즉시 발동 카드가 있으면 연쇄 발동!)
+      const gained = [];
+      for (let i = 0; i < 2 && this.state.decks.silver.length; i++) {
+        gained.push(this.state.decks.silver.pop());
+      }
+      const msg = gained.length
+        ? `📦 ${cat.name} [질보단 양 II] 발동! 실버 [${gained.map(c => c.name).join(', ')}] 획득!`
+        : `📦 ${cat.name} [질보단 양 II] 발동! (남은 실버 카드 없음)`;
+      this.addLog(msg);
+      this.setBanner(msg, 'cat');
+      this.setActionPopup(msg, 'found');
+      gained.forEach(sc => this.grantCatCard(cat, sc));
+      return;
+    }
+    cat.cards.push(card);
+  }
+
   selectDraftCard(cardIdx, catId) {
     if (this.state.phase !== 'DRAFT') return { error: '증강 선택 단계가 아닙니다.' };
     const card = this.state.draftOptions[cardIdx];
@@ -741,19 +794,9 @@ class GameEngine {
 
     this.state.draftOptions.splice(cardIdx, 1);
     this.state.draftPickedCats.push(catId);
-    cat.cards.push(card);
-    this.addLog(`✨ ${cat.name}가 [${card.name}] 증강 카드를 장착했습니다! (${this.state.draftPickedCats.length}/3)`);
+    this.addLog(`✨ ${cat.name}가 [${card.name}] 증강을 선택했습니다! (${this.state.draftPickedCats.length}/3)`);
     this.setBanner(`✨ ${cat.name}가 [${card.name}] 증강을 선택했습니다!`, 'cat');
-
-    if (card.id === 'silver_3') {
-      const bIdx = cat.cards.findIndex(c => c.tier === 'bronze');
-      if (bIdx >= 0) cat.cards.splice(bIdx, 1);
-      if (this.state.decks.gold.length) cat.cards.push(this.state.decks.gold.pop());
-    } else if (card.id === 'silver_4') {
-      for (let i = 0; i < 2 && this.state.decks.bronze.length; i++) cat.cards.push(this.state.decks.bronze.pop());
-    } else if (card.id === 'gold_3') {
-      for (let i = 0; i < 2 && this.state.decks.silver.length; i++) cat.cards.push(this.state.decks.silver.pop());
-    }
+    this.grantCatCard(cat, card);
 
     // Wait until all 3 cats have picked 1 card each (or no cards remain)
     if (this.state.draftPickedCats.length < 3 && this.state.draftOptions.length > 0) {
