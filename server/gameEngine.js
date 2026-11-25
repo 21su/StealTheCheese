@@ -511,6 +511,7 @@ class GameEngine {
             return { ok: true };
       }
       if (ability.cardId === 'silver_1') {
+        if (cat.searchingThisTurn) return { error: '이미 수색을 시작해 날쌘 걸음을 사용할 수 없습니다.' };
         cat.sprintMode = !cat.sprintMode;
         if (cat.sprintMode) {
           this.addLog(`💨 ${cat.name}가 [날쌘 걸음] 카드를 활성화했습니다!`);
