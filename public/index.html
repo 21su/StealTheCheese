@@ -133,31 +133,9 @@
   </section>
 
   <!-- Active Game Screen -->
-  <main id="gameView" class="hidden flex-1 max-w-[1440px] w-full mx-auto p-3 grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
-    <section class="lg:col-span-7 xl:col-span-8 flex flex-col gap-2">
-      <div class="panel-card px-3.5 py-2.5 flex items-center justify-between gap-2">
-        <p id="instructionText" class="text-xs sm:text-sm font-semibold text-stone-100"></p>
-        <span id="myRoleChip" class="px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0"></span>
-      </div>
-      <!-- Full-Game Replay Player Bar (Only visible in Replay Mode after GAME_OVER) -->
-      <div id="replayBar" class="hidden panel-card p-3 border-amber-400/70 bg-stone-900/95 space-y-2">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-extrabold text-[11px]">🎬 다시보기</span>
-            <span id="replayCaption" class="text-xs font-bold text-amber-200"></span>
-          </div>
-          <button id="btnExitReplay" type="button" class="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs font-bold text-stone-200">✕ 닫기</button>
-        </div>
-        <div class="flex flex-wrap items-center gap-1.5">
-          <button id="btnRepFirst" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">⏮</button>
-          <button id="btnRepPrev" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">◀ 이전</button>
-          <button id="btnRepPlay" type="button" class="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-extrabold">▶ 재생</button>
-          <button id="btnRepNext" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">다음 ▶</button>
-          <button id="btnRepLast" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">⏭</button>
-          <input id="replaySlider" type="range" min="0" max="0" value="0" class="flex-1 accent-amber-500" />
-          <span id="replayStepText" class="text-[11px] font-bold text-stone-300 tabular-nums">0 / 0</span>
-        </div>
-      </div>
+  <main id="gameView" class="hidden flex-1 max-w-[1680px] w-full mx-auto p-2.5 sm:p-3 grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+    <!-- Left Column: Dedicated Full-Size Board -->
+    <section class="lg:col-span-7 xl:col-span-8 flex flex-col items-center gap-1.5">
       <div class="board-wrap" id="boardWrap">
         <canvas id="gameCanvas"></canvas>
         <div id="boardTooltip" class="hidden pointer-events-none absolute z-20 px-2.5 py-1 rounded-lg bg-stone-950/90 border border-amber-500/40 text-xs text-stone-100 shadow-lg whitespace-nowrap"></div>
@@ -170,17 +148,56 @@
       </div>
     </section>
 
-    <aside class="lg:col-span-5 xl:col-span-4 flex flex-col gap-3">
-      <div id="controlPanel" class="panel-card p-3.5 space-y-3"></div>
+    <!-- Right Column: Instruction + Replay + Fixed-Height Control Panel + Cat Checks + Chat + Log -->
+    <aside class="lg:col-span-5 xl:col-span-4 flex flex-col gap-2.5">
+      <!-- Instruction / Role Banner (moved from top of map to right column) -->
+      <div class="panel-card px-3.5 py-2.5 min-h-[52px] flex items-center justify-between gap-2">
+        <p id="instructionText" class="text-xs sm:text-sm font-semibold text-stone-100 leading-snug"></p>
+        <span id="myRoleChip" class="px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0"></span>
+      </div>
+
+      <!-- Full-Game Replay Player Bar (Only visible in Replay Mode after GAME_OVER) -->
+      <div id="replayBar" class="hidden panel-card p-3 border-amber-400/70 bg-stone-900/95 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-extrabold text-[11px] shrink-0">🎬 다시보기</span>
+            <span id="replayStepText" class="text-[11px] font-extrabold text-amber-300 tabular-nums shrink-0">1R 1턴 (1/1턴)</span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <div id="replaySpeedBtns" class="flex items-center gap-0.5 bg-stone-950/80 p-0.5 rounded-lg border border-stone-700">
+              <button type="button" data-speed="0.5" class="rep-speed-btn px-1.5 py-0.5 rounded text-[10px] font-bold text-stone-400 hover:text-white">0.5x</button>
+              <button type="button" data-speed="1" class="rep-speed-btn px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-stone-950">1x</button>
+              <button type="button" data-speed="2" class="rep-speed-btn px-1.5 py-0.5 rounded text-[10px] font-bold text-stone-400 hover:text-white">2x</button>
+              <button type="button" data-speed="4" class="rep-speed-btn px-1.5 py-0.5 rounded text-[10px] font-bold text-stone-400 hover:text-white">4x</button>
+            </div>
+            <button id="btnExitReplay" type="button" class="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-[11px] font-bold text-stone-200">✕</button>
+          </div>
+        </div>
+        <div id="replayCaption" class="text-xs font-bold text-amber-100 leading-snug truncate"></div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button id="btnRepFirst" type="button" title="처음으로" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">⏮</button>
+          <button id="btnRepPrev" type="button" title="이전 턴" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">◀ 턴</button>
+          <button id="btnRepPlay" type="button" class="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-extrabold">▶ 재생</button>
+          <button id="btnRepNext" type="button" title="다음 턴" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">턴 ▶</button>
+          <button id="btnRepLast" type="button" title="끝으로" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">⏭</button>
+          <input id="replaySlider" type="range" min="0" max="0" value="0" class="flex-1 min-w-[80px] accent-amber-500" />
+        </div>
+      </div>
+
+      <!-- Fixed-Height Control Panel (prevents vertical layout jumping) -->
+      <div id="controlPanel" class="panel-card p-3.5 h-[296px] xl:h-[312px] overflow-y-auto custom-scroll space-y-3"></div>
+
+      <!-- Cat Detection Log (Newest at top + Grouped by Cat + ON/OFF Toggle) -->
       <div id="catChecksPanel" class="panel-card p-3 space-y-2">
         <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-1.5">
-            <h3 class="text-xs font-bold text-emerald-300">🔎 고양이 탐지 목록 (전체)</h3>
+            <h3 class="text-xs font-bold text-emerald-300">🔎 고양이 탐지 목록 (최신순)</h3>
             <span id="catChecksCount" class="text-[11px] text-stone-400">전체 0건</span>
           </div>
           <button id="btnToggleCatChecks" type="button" title="탐지 목록 및 보드 체크 표시 사용 여부 전환" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-400/70 text-emerald-200 transition">ON</button>
         </div>
-        <div id="catChecksList" class="max-h-28 overflow-y-auto custom-scroll flex flex-wrap gap-1 text-[11px]"></div>
+        <div id="catChecksFilterBar" class="flex flex-wrap gap-1"></div>
+        <div id="catChecksList" class="h-32 overflow-y-auto custom-scroll space-y-1.5 text-[11px]"></div>
       </div>
       <div class="panel-card p-3 flex flex-col gap-2">
         <div class="flex items-center justify-between">

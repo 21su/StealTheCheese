@@ -16,7 +16,7 @@ body {
 .board-wrap {
   position: relative;
   width: 100%;
-  max-width: 780px;
+  max-width: min(100%, calc(100vh - 108px));
   aspect-ratio: 1250 / 1240;
   margin: 0 auto;
   border-radius: 14px;

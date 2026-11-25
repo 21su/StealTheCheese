@@ -32,9 +32,11 @@ let localUI = {
   draftCardIdx: null,
   sideDrawerOpen: false,
   catChecksEnabled: true,
+  catChecksFilter: 'all',
   replayActive: false,
   replayIdx: 0,
-  replayPlaying: false
+  replayPlaying: false,
+  replaySpeed: 1
 };
 let replayTimer = null;
 
@@ -364,6 +366,7 @@ function leaveCurrentRoom() {
 document.getElementById('btnLeaveRoom').addEventListener('click', leaveCurrentRoom);
 function renderCatChecksPanel(game) {
   const list = document.getElementById('catChecksList');
+  const filterBar = document.getElementById('catChecksFilterBar');
   const cnt = document.getElementById('catChecksCount');
   const toggleBtn = document.getElementById('btnToggleCatChecks');
   if (!list || !cnt) return;
@@ -374,34 +377,79 @@ function renderCatChecksPanel(game) {
       ? 'px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-400/70 text-emerald-200 transition'
       : 'px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-400 transition';
   }
-  const items = game.catCheckedNodes || [];
-  const map = new Map();
-  items.forEach(it => map.set(`${it.round || 1}-${it.nodeId}`, it));
-  const arr = Array.from(map.values());
+
+  const rawItems = game.catCheckedNodes || [];
+  // Reverse so newest check is ALWAYS at the top / front
+  const newestFirst = [...rawItems].reverse();
+  const catNames = (game.cats || []).map(c => c.name);
+  const extraActors = Array.from(new Set(newestFirst.map(it => it.by).filter(n => n && !catNames.includes(n))));
+  const allActors = [...catNames, ...extraActors];
+
   if (!enabled) {
     cnt.textContent = '사용 안 함 (OFF)';
     list.classList.add('hidden');
+    if (filterBar) filterBar.classList.add('hidden');
     return;
   }
   list.classList.remove('hidden');
-  cnt.textContent = `전체 ${arr.length}건${game.showCatChecks ? ' · 보드 원 ON' : ''}`;
-  if (!arr.length) {
-    list.innerHTML = '<span class="text-stone-500">아직 탐지한 칸이 없습니다.</span>';
+  if (filterBar) {
+    filterBar.classList.remove('hidden');
+    const tabs = [{ key: 'all', label: '전체' }, ...allActors.map(n => ({ key: n, label: n }))];
+    if (localUI.catChecksFilter !== 'all' && !allActors.includes(localUI.catChecksFilter)) {
+      localUI.catChecksFilter = 'all';
+    }
+    filterBar.innerHTML = tabs.map(t => {
+      const active = localUI.catChecksFilter === t.key;
+      const cls = active
+        ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 font-extrabold'
+        : 'bg-stone-900 border-stone-700 text-stone-400 hover:text-stone-200 font-bold';
+      return `<button type="button" onclick="setCatChecksFilter('${escAttr(t.key)}')" class="px-2 py-0.5 rounded-md border text-[10px] transition ${cls}">${t.label}</button>`;
+    }).join('');
+  }
+
+  const filtered = localUI.catChecksFilter === 'all'
+    ? newestFirst
+    : newestFirst.filter(it => it.by === localUI.catChecksFilter);
+
+  cnt.textContent = `${localUI.catChecksFilter === 'all' ? '전체' : localUI.catChecksFilter} ${filtered.length}건${game.showCatChecks ? ' · 보드 원 ON' : ''}`;
+  if (!filtered.length) {
+    list.innerHTML = '<div class="text-stone-500 py-1">아직 탐지한 칸이 없습니다.</div>';
     return;
   }
-  list.innerHTML = arr.map(it => {
+
+  const renderBadge = it => {
     const r = it.round || 1;
     const isCur = r === game.round;
-    const rBadge = `<span class="opacity-75 mr-0.5">${r}R</span>`;
     const cls = it.hit
       ? (isCur ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200' : 'bg-emerald-950/50 border-emerald-700/60 text-emerald-300/80')
       : (isCur ? 'bg-stone-800/90 border-stone-500 text-stone-200' : 'bg-stone-900/80 border-stone-700 text-stone-400');
-    return `
-    <span title="${r}라운드 ${it.turn}턴 · ${it.by} — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-2 py-0.5 rounded-md font-bold border ${cls}">
-      ${rBadge}#${it.nodeId}${it.hit ? ' 🐾' : ''}
-    </span>`;
-  }).join('');
+    return `<span title="${r}라운드 ${it.turn}턴 · ${it.by} — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-1.5 py-0.5 rounded font-bold border ${cls}"><span class="opacity-70 mr-0.5">${r}R·${it.turn}T</span>#${it.nodeId}${it.hit ? ' 🐾' : ''}</span>`;
+  };
+
+  if (localUI.catChecksFilter === 'all') {
+    // Group by cat (only actors with checks, newest actor activity on top, newest check first inside each cat)
+    const groups = new Map();
+    filtered.forEach(it => {
+      const k = it.by || '고양이';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(it);
+    });
+    list.innerHTML = Array.from(groups.entries()).map(([actor, arr]) => `
+      <div class="p-2 rounded-lg bg-stone-950/65 border border-stone-800 space-y-1">
+        <div class="flex items-center justify-between text-[10px]">
+          <span class="font-extrabold text-orange-300">🐱 ${actor}</span>
+          <span class="text-stone-400">${arr.length}건 (최신순)</span>
+        </div>
+        <div class="flex flex-wrap gap-1">${arr.map(renderBadge).join('')}</div>
+      </div>`).join('');
+  } else {
+    list.innerHTML = `<div class="flex flex-wrap gap-1">${filtered.map(renderBadge).join('')}</div>`;
+  }
 }
+window.setCatChecksFilter = key => {
+  localUI.catChecksFilter = key;
+  if (roomState?.game) renderCatChecksPanel(roomState.game);
+};
 document.getElementById('btnToggleCatChecks')?.addEventListener('click', () => {
   localUI.catChecksEnabled = !localUI.catChecksEnabled;
   if (roomState?.game) {
@@ -410,12 +458,60 @@ document.getElementById('btnToggleCatChecks')?.addEventListener('click', () => {
   }
 });
 
-// === FULL-GAME REPLAY PLAYER ===
+// === FULL-GAME REPLAY PLAYER (Speed Control + Turn-Based Count + Fast Mid-Turn Sub-Actions) ===
+function getReplayTurnMap(frames) {
+  const turnStarts = [];
+  let prevKey = null;
+  frames.forEach((f, idx) => {
+    const key = `${f.round}-${f.turn}`;
+    if (key !== prevKey) {
+      turnStarts.push({ idx, key, round: f.round, turn: f.turn });
+      prevKey = key;
+    }
+  });
+  return turnStarts;
+}
+
 function stopReplayTimer() {
-  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
   localUI.replayPlaying = false;
   const btn = document.getElementById('btnRepPlay');
   if (btn) btn.textContent = '▶ 재생';
+}
+
+function updateReplaySpeedButtons() {
+  document.querySelectorAll('.rep-speed-btn').forEach(btn => {
+    const spd = Number(btn.dataset.speed);
+    const active = spd === localUI.replaySpeed;
+    btn.className = active
+      ? 'rep-speed-btn px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-stone-950'
+      : 'rep-speed-btn px-1.5 py-0.5 rounded text-[10px] font-bold text-stone-400 hover:text-white';
+  });
+}
+
+function scheduleNextReplayTick() {
+  if (!localUI.replayPlaying) return;
+  const frames = roomState?.game?.replayFrames || [];
+  if (localUI.replayIdx >= frames.length - 1) {
+    stopReplayTimer();
+    return;
+  }
+  const cur = frames[localUI.replayIdx];
+  const nxt = frames[localUI.replayIdx + 1];
+  const sameTurn = cur && nxt && cur.round === nxt.round && cur.turn === nxt.turn;
+  // Mid-turn actions fast-forward quickly; turn/round transitions hold clearly
+  const baseMs = sameTurn ? 260 : 950;
+  const delay = Math.max(70, Math.round(baseMs / (localUI.replaySpeed || 1)));
+  replayTimer = setTimeout(() => {
+    if (!localUI.replayPlaying) return;
+    if (localUI.replayIdx < frames.length - 1) {
+      localUI.replayIdx++;
+      updateReplayUI();
+      scheduleNextReplayTick();
+    } else {
+      stopReplayTimer();
+    }
+  }, delay);
 }
 
 window.startReplay = () => {
@@ -425,6 +521,7 @@ window.startReplay = () => {
   localUI.replayActive = true;
   localUI.replayIdx = 0;
   document.getElementById('replayBar').classList.remove('hidden');
+  updateReplaySpeedButtons();
   updateReplayUI();
 };
 
@@ -440,8 +537,14 @@ function updateReplayUI() {
   if (!frames.length) return;
   localUI.replayIdx = Math.max(0, Math.min(frames.length - 1, localUI.replayIdx));
   const f = frames[localUI.replayIdx];
-  document.getElementById('replayCaption').textContent = `[${f.round}R ${f.turn}T] ${f.caption}`;
-  document.getElementById('replayStepText').textContent = `${localUI.replayIdx + 1} / ${frames.length}`;
+  const turnStarts = getReplayTurnMap(frames);
+  let curTurnPos = 0;
+  for (let i = 0; i < turnStarts.length; i++) {
+    if (turnStarts[i].idx <= localUI.replayIdx) curTurnPos = i;
+    else break;
+  }
+  document.getElementById('replayCaption').textContent = `[${f.round}R ${f.turn}턴] ${f.caption}`;
+  document.getElementById('replayStepText').textContent = `${f.round}R ${f.turn}턴 (${curTurnPos + 1}/${turnStarts.length}턴)`;
   const slider = document.getElementById('replaySlider');
   slider.max = frames.length - 1;
   slider.value = localUI.replayIdx;
@@ -450,24 +553,47 @@ function updateReplayUI() {
 
 document.getElementById('btnExitReplay').addEventListener('click', exitReplay);
 document.getElementById('btnRepFirst').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx = 0; updateReplayUI(); });
-document.getElementById('btnRepPrev').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx--; updateReplayUI(); });
-document.getElementById('btnRepNext').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx++; updateReplayUI(); });
+document.getElementById('btnRepPrev').addEventListener('click', () => {
+  stopReplayTimer();
+  const frames = roomState?.game?.replayFrames || [];
+  const turnStarts = getReplayTurnMap(frames);
+  let target = 0;
+  for (let i = turnStarts.length - 1; i >= 0; i--) {
+    if (turnStarts[i].idx < localUI.replayIdx) { target = turnStarts[i].idx; break; }
+  }
+  localUI.replayIdx = target;
+  updateReplayUI();
+});
+document.getElementById('btnRepNext').addEventListener('click', () => {
+  stopReplayTimer();
+  const frames = roomState?.game?.replayFrames || [];
+  const turnStarts = getReplayTurnMap(frames);
+  let target = frames.length - 1;
+  for (let i = 0; i < turnStarts.length; i++) {
+    if (turnStarts[i].idx > localUI.replayIdx) { target = turnStarts[i].idx; break; }
+  }
+  localUI.replayIdx = target;
+  updateReplayUI();
+});
 document.getElementById('btnRepLast').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx = (roomState?.game?.replayFrames?.length || 1) - 1; updateReplayUI(); });
 document.getElementById('replaySlider').addEventListener('input', e => { stopReplayTimer(); localUI.replayIdx = Number(e.target.value); updateReplayUI(); });
+document.querySelectorAll('.rep-speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    localUI.replaySpeed = Number(btn.dataset.speed) || 1;
+    updateReplaySpeedButtons();
+    if (localUI.replayPlaying) {
+      if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+      scheduleNextReplayTick();
+    }
+  });
+});
 document.getElementById('btnRepPlay').addEventListener('click', () => {
   if (localUI.replayPlaying) { stopReplayTimer(); return; }
   const frames = roomState?.game?.replayFrames || [];
   if (localUI.replayIdx >= frames.length - 1) localUI.replayIdx = 0;
   localUI.replayPlaying = true;
   document.getElementById('btnRepPlay').textContent = '⏸ 일시정지';
-  replayTimer = setInterval(() => {
-    if (localUI.replayIdx < frames.length - 1) {
-      localUI.replayIdx++;
-      updateReplayUI();
-    } else {
-      stopReplayTimer();
-    }
-  }, 1050);
+  scheduleNextReplayTick();
 });
 
 function toggleSideDrawer(forceState) {
