@@ -90,6 +90,10 @@
               <div class="text-[10px] text-stone-300 mt-0.5">매 라운드 치즈 3개 유지, 빈 구역 쥐구멍 앞 출발</div>
             </button>
           </div>
+          <label class="flex items-center justify-between gap-2 pt-1.5 border-t border-stone-800 text-xs text-stone-200 cursor-pointer select-none">
+            <span>👁️ 고양이 체크 위치 보이기 <span class="text-[10px] text-stone-400">(탐지 번호 + 보드에 반투명 원 표시)</span></span>
+            <input id="chkShowCatChecks" type="checkbox" checked class="w-4 h-4 accent-amber-500 rounded" />
+          </label>
         </div>
 
         <div class="space-y-2">
@@ -120,6 +124,25 @@
         <p id="instructionText" class="text-xs sm:text-sm font-semibold text-stone-100"></p>
         <span id="myRoleChip" class="px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0"></span>
       </div>
+      <!-- Full-Game Replay Player Bar (Only visible in Replay Mode after GAME_OVER) -->
+      <div id="replayBar" class="hidden panel-card p-3 border-amber-400/70 bg-stone-900/95 space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-extrabold text-[11px]">🎬 다시보기</span>
+            <span id="replayCaption" class="text-xs font-bold text-amber-200"></span>
+          </div>
+          <button id="btnExitReplay" type="button" class="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs font-bold text-stone-200">✕ 닫기</button>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button id="btnRepFirst" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">⏮</button>
+          <button id="btnRepPrev" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">◀ 이전</button>
+          <button id="btnRepPlay" type="button" class="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-extrabold">▶ 재생</button>
+          <button id="btnRepNext" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">다음 ▶</button>
+          <button id="btnRepLast" type="button" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-xs font-bold">⏭</button>
+          <input id="replaySlider" type="range" min="0" max="0" value="0" class="flex-1 accent-amber-500" />
+          <span id="replayStepText" class="text-[11px] font-bold text-stone-300 tabular-nums">0 / 0</span>
+        </div>
+      </div>
       <div class="board-wrap" id="boardWrap">
         <canvas id="gameCanvas"></canvas>
         <div id="boardTooltip" class="hidden pointer-events-none absolute z-20 px-2.5 py-1 rounded-lg bg-stone-950/90 border border-amber-500/40 text-xs text-stone-100 shadow-lg whitespace-nowrap"></div>
@@ -134,6 +157,13 @@
 
     <aside class="lg:col-span-5 xl:col-span-4 flex flex-col gap-3">
       <div id="controlPanel" class="panel-card p-3.5 space-y-3"></div>
+      <div id="catChecksPanel" class="panel-card p-3 space-y-1.5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold text-emerald-300">🔎 고양이 탐지 목록 (이번 라운드)</h3>
+          <span id="catChecksCount" class="text-[11px] text-stone-400">0곳 확인</span>
+        </div>
+        <div id="catChecksList" class="max-h-24 overflow-y-auto custom-scroll flex flex-wrap gap-1 text-[11px]"></div>
+      </div>
       <div class="panel-card p-3 flex flex-col gap-2">
         <div class="flex items-center justify-between">
           <h3 class="text-xs font-bold text-amber-300">💬 실시간 채팅</h3>

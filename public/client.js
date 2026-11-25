@@ -30,8 +30,12 @@ let localUI = {
   activeAbility: null, // { catId, cardId }
   controllingClone: false,
   draftCardIdx: null,
-  sideDrawerOpen: false
+  sideDrawerOpen: false,
+  replayActive: false,
+  replayIdx: 0,
+  replayPlaying: false
 };
+let replayTimer = null;
 
 function getStoredToken() {
   try {
@@ -159,7 +163,13 @@ function getCatReachableEdges(game, catId) {
       }
     }
   }
-  return Object.keys(dist).map(Number).filter(eid => eid === cat.edgeId || !occ.has(eid));
+  const res = new Set(Object.keys(dist).map(Number).filter(eid => eid === cat.edgeId || !occ.has(eid)));
+  if (catHasCard(cat, 'gold_2')) {
+    game.cats.forEach(o => {
+      if (o.id !== catId && o.edgeId !== null) (EDGE_ADJ[o.edgeId] || []).forEach(eid => { if (!occ.has(eid)) res.add(eid); });
+    });
+  }
+  return Array.from(res);
 }
 
 function getCloneReachableEdges(game) {
@@ -195,17 +205,19 @@ function getMouseLegalMoves(game, mouseId, cardType = null) {
       out.add(to);
     });
   } else if (cardType === 'sprint' && m.cards?.sprint) {
+    const cheeseNodes = new Set((game.cheeses || []).filter(c => c.stolenBy === null).map(c => c.nodeId));
     (NODE_ADJ[m.pos] || []).forEach(({ to: mid }) => {
       if (mid === blocked) return;
       (NODE_ADJ[mid] || []).forEach(({ to }) => {
-        if (to === m.pos || to === otherPos || to === blocked) return;
+        if (to === m.pos || to === otherPos || to === blocked || cheeseNodes.has(to)) return;
         if (HOLES.includes(to) && usedHoles.has(to) && m.hasCheese) return;
         out.add(to);
       });
     });
   } else if (cardType === 'wall' && m.cards?.wall) {
+    const cheeseNodes = new Set((game.cheeses || []).filter(c => c.stolenBy === null).map(c => c.nodeId));
     (WALL_ADJ[String(m.pos)] || []).forEach(to => {
-      if (to === otherPos || to === blocked) return;
+      if (to === otherPos || to === blocked || cheeseNodes.has(to)) return;
       if (HOLES.includes(to) && usedHoles.has(to) && m.hasCheese) return;
       out.add(to);
     });
@@ -321,6 +333,85 @@ function leaveCurrentRoom() {
 }
 
 document.getElementById('btnLeaveRoom').addEventListener('click', leaveCurrentRoom);
+function renderCatChecksPanel(game) {
+  const list = document.getElementById('catChecksList');
+  const cnt = document.getElementById('catChecksCount');
+  if (!list || !cnt) return;
+  const items = game.catCheckedNodes || [];
+  const map = new Map();
+  items.forEach(it => map.set(it.nodeId, it));
+  const arr = Array.from(map.values());
+  cnt.textContent = `${arr.length}곳 확인${game.showCatChecks ? ' · 보드 표시 ON' : ''}`;
+  if (!arr.length) {
+    list.innerHTML = '<span class="text-stone-500">아직 탐지한 칸이 없습니다.</span>';
+    return;
+  }
+  list.innerHTML = arr.map(it => `
+    <span title="${it.by} (${it.turn}턴) — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-2 py-0.5 rounded-md font-bold border ${it.hit ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200' : 'bg-stone-800/90 border-stone-600 text-stone-300'}">
+      #${it.nodeId}${it.hit ? ' 🐾' : ''}
+    </span>`).join('');
+}
+
+// === FULL-GAME REPLAY PLAYER ===
+function stopReplayTimer() {
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  localUI.replayPlaying = false;
+  const btn = document.getElementById('btnRepPlay');
+  if (btn) btn.textContent = '▶ 재생';
+}
+
+window.startReplay = () => {
+  const frames = roomState?.game?.replayFrames;
+  if (!frames || !frames.length) return showToast('재생할 다시보기 기록이 없습니다.');
+  stopReplayTimer();
+  localUI.replayActive = true;
+  localUI.replayIdx = 0;
+  document.getElementById('replayBar').classList.remove('hidden');
+  updateReplayUI();
+};
+
+function exitReplay() {
+  stopReplayTimer();
+  localUI.replayActive = false;
+  document.getElementById('replayBar').classList.add('hidden');
+  renderBoard();
+}
+
+function updateReplayUI() {
+  const frames = roomState?.game?.replayFrames || [];
+  if (!frames.length) return;
+  localUI.replayIdx = Math.max(0, Math.min(frames.length - 1, localUI.replayIdx));
+  const f = frames[localUI.replayIdx];
+  document.getElementById('replayCaption').textContent = `[${f.round}R ${f.turn}T] ${f.caption}`;
+  document.getElementById('replayStepText').textContent = `${localUI.replayIdx + 1} / ${frames.length}`;
+  const slider = document.getElementById('replaySlider');
+  slider.max = frames.length - 1;
+  slider.value = localUI.replayIdx;
+  renderBoard();
+}
+
+document.getElementById('btnExitReplay').addEventListener('click', exitReplay);
+document.getElementById('btnRepFirst').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx = 0; updateReplayUI(); });
+document.getElementById('btnRepPrev').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx--; updateReplayUI(); });
+document.getElementById('btnRepNext').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx++; updateReplayUI(); });
+document.getElementById('btnRepLast').addEventListener('click', () => { stopReplayTimer(); localUI.replayIdx = (roomState?.game?.replayFrames?.length || 1) - 1; updateReplayUI(); });
+document.getElementById('replaySlider').addEventListener('input', e => { stopReplayTimer(); localUI.replayIdx = Number(e.target.value); updateReplayUI(); });
+document.getElementById('btnRepPlay').addEventListener('click', () => {
+  if (localUI.replayPlaying) { stopReplayTimer(); return; }
+  const frames = roomState?.game?.replayFrames || [];
+  if (localUI.replayIdx >= frames.length - 1) localUI.replayIdx = 0;
+  localUI.replayPlaying = true;
+  document.getElementById('btnRepPlay').textContent = '⏸ 일시정지';
+  replayTimer = setInterval(() => {
+    if (localUI.replayIdx < frames.length - 1) {
+      localUI.replayIdx++;
+      updateReplayUI();
+    } else {
+      stopReplayTimer();
+    }
+  }, 1050);
+});
+
 function toggleSideDrawer(forceState) {
   localUI.sideDrawerOpen = (typeof forceState === 'boolean') ? forceState : !localUI.sideDrawerOpen;
   const drawer = document.getElementById('sideDrawer');
@@ -354,8 +445,8 @@ function renderSideDrawer(game, me) {
         <span class="text-[10px] text-stone-400">${showMouseCardTypes ? '종류 공개(아군)' : '종류 비공개'}</span>
       </div>
       ${game.mice.map(m => {
-        const usedCnt = m.cards ? Object.values(m.cards).filter(v => !v).length : (m.usedCardCount || 0);
-        const totalCnt = m.totalCardCount || 3;
+        const totalCnt = m.totalCardCount || 4;
+        const usedCnt = m.cards ? (totalCnt - ((m.cards.sprint || 0) + (m.cards.wall || 0) + (m.cards.hole || 0))) : (m.usedCardCount || 0);
         return `
           <div class="p-2.5 rounded-xl bg-stone-900/80 border border-stone-700 space-y-1.5">
             <div class="flex items-center justify-between">
@@ -366,12 +457,12 @@ function renderSideDrawer(game, me) {
               <div class="flex flex-wrap gap-1">
                 ${mCardsMeta.map(mc => {
                   const avail = m.cards[mc.id];
-                  return `<button type="button" onclick="zoomCard('${mc.imgKey}','생쥐 능력 카드','${escAttr(mc.name)}','${escAttr(mc.desc)}')" class="px-2 py-0.5 rounded text-[10px] font-bold border ${avail ? 'bg-sky-500/15 border-sky-400/60 text-sky-200' : 'bg-stone-800 border-stone-700 text-stone-500 line-through'}">${mc.name} ${avail ? '보유' : '사용됨'}</button>`;
+                  return `<button type="button" onclick="zoomCard('${mc.imgKey}','생쥐 능력 카드','${escAttr(mc.name)}','${escAttr(mc.desc)}')" class="px-2 py-0.5 rounded text-[10px] font-bold border ${avail ? 'bg-sky-500/15 border-sky-400/60 text-sky-200' : 'bg-stone-800 border-stone-700 text-stone-500 line-through'}">${mc.name} ${avail ? (avail > 1 ? `×${avail}` : '보유') : '사용됨'}</button>`;
                 }).join('')}
               </div>
             ` : `
               <div class="flex gap-1">
-                ${[0, 1, 2].map(i => `<span class="flex-1 text-center py-0.5 rounded text-[10px] font-bold border ${i < usedCnt ? 'bg-amber-500/20 border-amber-400/60 text-amber-300' : 'bg-stone-800 border-stone-700 text-stone-400'}">${i < usedCnt ? '사용됨(비공개)' : '미사용'}</span>`).join('')}
+                ${[0, 1, 2, 3].map(i => `<span class="flex-1 text-center py-0.5 rounded text-[10px] font-bold border ${i < usedCnt ? 'bg-amber-500/20 border-amber-400/60 text-amber-300' : 'bg-stone-800 border-stone-700 text-stone-400'}">${i < usedCnt ? '사용됨(비공개)' : '미사용'}</span>`).join('')}
               </div>
             `}
           </div>`;
@@ -439,6 +530,10 @@ document.getElementById('btnModeThree').addEventListener('click', () => {
 document.getElementById('btnClaimAllMouse').addEventListener('click', () => socket.emit('room:claimTeamAll', { team: 'mouse' }));
 document.getElementById('btnClaimAllCat').addEventListener('click', () => socket.emit('room:claimTeamAll', { team: 'cat' }));
 document.getElementById('btnReleaseExtra').addEventListener('click', () => socket.emit('room:releaseExtraSeats'));
+document.getElementById('chkShowCatChecks').addEventListener('change', e => {
+  if (roomState?.me?.isHost) socket.emit('room:setMode', { showCatChecks: e.target.checked });
+  else e.target.checked = Boolean(roomState?.lobby?.showCatChecks);
+});
 
 
 document.getElementById('btnCopyRoom').addEventListener('click', () => {
@@ -546,6 +641,9 @@ function renderAll() {
     document.getElementById('btnModeClassic').className = `p-2 rounded-lg border text-left transition ${!isThree ? 'bg-amber-500/20 border-amber-400' : 'bg-stone-900 border-stone-700 opacity-70'} ${me.isHost ? 'cursor-pointer hover:border-amber-400/70' : 'cursor-default'}`;
     document.getElementById('btnModeThree').className = `p-2 rounded-lg border text-left transition ${isThree ? 'bg-amber-500/20 border-amber-400' : 'bg-stone-900 border-stone-700 opacity-70'} ${me.isHost ? 'cursor-pointer hover:border-amber-400/70' : 'cursor-default'}`;
     document.getElementById('modeHint').textContent = me.isHost ? '클릭해 모드 변경' : (isThree ? '현재: 치즈 3개 모드' : '현재: 기본 모드');
+    const chkChecks = document.getElementById('chkShowCatChecks');
+    chkChecks.checked = Boolean(lobby.showCatChecks);
+    chkChecks.disabled = !me.isHost;
 
     if (me.isHost) {
       document.getElementById('btnStartOnline').classList.remove('hidden');
@@ -609,6 +707,7 @@ function renderAll() {
     showActionNotice(game.lastActionPopup.text, game.lastActionPopup.tone);
   }
   renderSideDrawer(game, me);
+  renderCatChecksPanel(game);
   renderControls(game, me);
   document.getElementById('publicLog').innerHTML = game.publicLog.map(item =>
     `<div class="p-1.5 rounded bg-stone-900/70"><span class="text-amber-400 font-bold mr-1">[${item.turn}]</span>${item.msg}</div>`
@@ -651,7 +750,10 @@ function renderControls(game, me) {
       <div class="text-center py-4 space-y-3">
         <div class="text-2xl font-extrabold text-amber-300">${game.winner === 'mouse' ? '🐭 생쥐 팀 승리!' : '🐱 고양이 팀 승리!'}</div>
         <div class="text-xs text-stone-300">${game.winReason}</div>
-        <button onclick="leaveCurrentRoom()" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-xs">로비로 나가기</button>
+        <div class="flex flex-wrap justify-center gap-2 pt-1">
+          ${game.replayFrames?.length ? `<button onclick="startReplay()" class="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-stone-950 font-extrabold text-xs">🎬 전체 게임 다시보기 (${game.replayFrames.length}장면)</button>` : ''}
+          <button onclick="leaveCurrentRoom()" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-xs">로비로 나가기</button>
+        </div>
       </div>`;
     return;
   }
@@ -710,7 +812,7 @@ function renderControls(game, me) {
             <div class="flex flex-col gap-1">
               <button ${avail ? '' : 'disabled'} onclick="toggleMCard('${mc.id}')" class="p-1.5 rounded-xl border text-center ${isSel ? 'bg-amber-500/25 border-amber-400' : 'bg-stone-900 border-stone-700'} ${avail ? '' : 'opacity-35'}">
                 ${ASSETS?.[mc.imgKey] ? `<img src="${ASSETS[mc.imgKey]}" class="w-full rounded-md mb-1" />` : ''}
-                <div class="text-[11px] font-bold text-white">${mc.name}</div>
+                <div class="text-[11px] font-bold text-white">${mc.name}${avail > 1 ? ` <span class="text-amber-300">×${avail}</span>` : (!avail ? " (0)" : "")}</div>
               </button>
               <button onclick="zoomCard('${mc.imgKey}','생쥐 능력 카드','${escAttr(mc.name)}','${escAttr(mc.desc)}')" class="text-[10px] text-stone-400 hover:text-amber-300">설명 보기</button>
             </div>`;
@@ -773,25 +875,34 @@ function renderControls(game, me) {
           ` : `
             <div class="grid grid-cols-2 gap-2 pt-1">
               <button onclick="setCatSearchMode()" class="py-2 rounded-lg ${localUI.catMode === 'search' ? 'bg-emerald-500 text-stone-950' : 'bg-stone-800 hover:bg-stone-700 text-emerald-300 border border-emerald-500/40'} font-extrabold text-xs">🔍 ${localUI.controllingClone ? '분신 ' : ''}단서 수색 (한 칸씩)</button>
-              <button ${!localUI.controllingClone && catHasCard(game.cats[localUI.selectedCatId], 'gold_2') ? 'disabled' : ''} onclick="setCatCaptureMode()" class="py-2 rounded-lg ${localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40'} font-extrabold text-xs ${!localUI.controllingClone && catHasCard(game.cats[localUI.selectedCatId], 'gold_2') ? 'opacity-40 cursor-not-allowed' : ''}">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
+              <button  onclick="setCatCaptureMode()" class="py-2 rounded-lg ${localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40'} font-extrabold text-xs ">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
             </div>
           `}
         `}` : `<div class="text-[11px] text-stone-400">행동할 고양이를 선택하면 이동 범위 가이드라인과 카드 [발동] 버튼이 활성화됩니다.</div>`}
     `;
   } else if (game.phase === 'DRAFT') {
-    inst.textContent = me.team === 'cat' ? '라운드 종료! 증강 카드 3장 중 1장을 골라 고양이에 장착하세요.' : '고양이 팀이 증강 카드를 선택하는 중입니다...';
-    if (me.team !== 'cat') { el.innerHTML = ''; return; }
+    const picked = new Set(game.draftPickedCats || []);
+    const myUnpickedCats = game.cats.filter(c => (me.seatIndices || []).includes(c.id) && !picked.has(c.id));
+    inst.textContent = me.team === 'cat'
+      ? `라운드 종료! 공개된 3장의 증강 카드 중 각 고양이가 1장씩 선택합니다 (${picked.size}/3 완료).`
+      : `고양이 팀이 각자 증강 카드를 선택하는 중입니다 (${picked.size}/3 완료)...`;
+    if (me.team !== 'cat') { el.innerHTML = `<div class="text-xs text-stone-400 text-center py-4">고양이 3마리가 각자 증강 카드를 고르고 있습니다...</div>`; return; }
     el.innerHTML = `
-      <div class="space-y-2">
-        <div class="grid grid-cols-3 gap-2">
-          ${game.draftOptions.map((c, idx) => `
-            <button onclick="pickDraft(${idx})" class="p-2 rounded-xl border text-center transition ${localUI.draftCardIdx === idx ? 'bg-amber-500/20 border-amber-400' : 'bg-stone-900 border-stone-700 hover:border-amber-400/60'}">
-              ${ASSETS?.[c.id] ? `<img src="${ASSETS[c.id]}" class="w-full rounded-lg mb-1" />` : ''}
-              <div class="text-[11px] font-bold text-amber-300 leading-tight">${c.name}</div>
-              <div class="text-[10px] text-stone-300 mt-1 leading-snug">${c.desc}</div>
-            </button>`).join('')}
+      <div class="space-y-2.5">
+        <div class="flex flex-wrap gap-1.5 text-[11px]">
+          ${game.cats.map(c => `<span class="px-2 py-0.5 rounded-full border font-bold ${picked.has(c.id) ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300' : 'bg-stone-900 border-stone-700 text-stone-300'}">${c.name} ${picked.has(c.id) ? '✓ 완료' : '대기'}</span>`).join('')}
         </div>
-        ${localUI.draftCardIdx !== null ? `<div class="flex gap-1.5 pt-1">${game.cats.map(c => `<button onclick="equipDraft(${c.id})" class="flex-1 py-2 rounded-lg bg-orange-500 hover:bg-orange-400 text-stone-950 font-extrabold text-xs">${c.name} 장착</button>`).join('')}</div>` : ''}
+        ${myUnpickedCats.length ? `
+          <div class="grid grid-cols-3 gap-2">
+            ${game.draftOptions.map((c, idx) => `
+              <button onclick="pickDraft(${idx})" class="p-2 rounded-xl border text-center transition ${localUI.draftCardIdx === idx ? 'bg-amber-500/20 border-amber-400 ring-1 ring-amber-300' : 'bg-stone-900 border-stone-700 hover:border-amber-400/60'}">
+                ${ASSETS?.[c.id] ? `<img src="${ASSETS[c.id]}" class="w-full rounded-lg mb-1" />` : ''}
+                <div class="text-[11px] font-bold text-amber-300 leading-tight">${c.name}</div>
+                <div class="text-[10px] text-stone-300 mt-1 leading-snug">${c.desc}</div>
+              </button>`).join('')}
+          </div>
+          ${localUI.draftCardIdx !== null ? `<div class="flex flex-wrap gap-1.5 pt-1">${myUnpickedCats.map(c => `<button onclick="equipDraft(${c.id})" class="flex-1 py-2 rounded-lg bg-orange-500 hover:bg-orange-400 text-stone-950 font-extrabold text-xs">${c.name}에 장착</button>`).join('')}</div>` : '<div class="text-[11px] text-amber-200 text-center">위에서 장착할 카드를 먼저 클릭하세요.</div>'}
+        ` : `<div class="text-xs text-emerald-300 text-center py-3 font-bold">✓ 내 고양이 증강 선택 완료! 다른 고양이의 선택을 기다리는 중...</div>`}
       </div>`;
   }
 }
@@ -920,6 +1031,61 @@ function renderBoard() {
   const { game, me } = roomState;
   const sc = canvas.width / GRAPH.width;
 
+  // === REPLAY MODE OVERRIDE RENDERING ===
+  if (localUI.replayActive && game.replayFrames?.length) {
+    const f = game.replayFrames[localUI.replayIdx];
+    if (f) {
+      f.cluesPast.forEach(nid => { ctx.save(); ctx.globalAlpha = 0.45; drawSprite('token_clue', NODES[nid].x, NODES[nid].y, 44); ctx.restore(); });
+      f.cluesCurrent.forEach(nid => drawSprite('token_clue', NODES[nid].x, NODES[nid].y, 48));
+      if (f.bellNode && NODES[f.bellNode]) drawSprite('token_aug1', NODES[f.bellNode].x, NODES[f.bellNode].y, 50);
+      if (f.blockedNode && NODES[f.blockedNode]) drawSprite('token_aug2', NODES[f.blockedNode].x, NODES[f.blockedNode].y, 50);
+
+      f.mice.forEach(m => {
+        if (m.trail && m.trail.length > 1) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.strokeStyle = m.id === 0 ? 'rgba(56,189,248,0.75)' : 'rgba(168,85,247,0.75)';
+          ctx.lineWidth = 5 * sc;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          m.trail.forEach((nid, i) => {
+            const n = NODES[nid];
+            if (!n) return;
+            if (i === 0) ctx.moveTo(n.x * sc, n.y * sc);
+            else ctx.lineTo(n.x * sc, n.y * sc);
+          });
+          ctx.stroke();
+          ctx.restore();
+        }
+      });
+
+      f.cheeses.forEach(c => {
+        if (c.stolenBy !== null || !NODES[c.nodeId]) return;
+        const n = NODES[c.nodeId];
+        drawRing(n.x, n.y, 24, '#f59e0b', 'rgba(245,158,11,0.35)', 4);
+        ctx.font = `bold ${Math.round(22 * sc)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🧀', n.x * sc, n.y * sc);
+      });
+
+      f.mice.forEach(m => {
+        if (!m.pos || !NODES[m.pos]) return;
+        const n = NODES[m.pos];
+        drawRing(n.x, n.y, 24, m.id === 0 ? '#38bdf8' : '#a855f7', 'rgba(15,23,42,0.55)', 4);
+        drawSprite(m.img, n.x, n.y, 38);
+      });
+
+      f.cats.forEach(c => {
+        if (c.edgeId === null || !EDGES[c.edgeId]) return;
+        drawSprite(c.img, EDGES[c.edgeId].x, EDGES[c.edgeId].y, 38);
+      });
+      if (f.cloneCat?.active && f.cloneCat.edgeId !== null && EDGES[f.cloneCat.edgeId]) {
+        drawSprite('cat_4', EDGES[f.cloneCat.edgeId].x, EDGES[f.cloneCat.edgeId].y, 36);
+      }
+      return;
+    }
+  }
+
   // 1. Clues & Stolen Cheese Tokens
   game.cluesPast.forEach(nid => { ctx.save(); ctx.globalAlpha = 0.45; drawSprite('token_clue', NODES[nid].x, NODES[nid].y, 44); ctx.restore(); });
   game.cluesCurrent.forEach(nid => drawSprite('token_clue', NODES[nid].x, NODES[nid].y, 48));
@@ -995,12 +1161,23 @@ function renderBoard() {
     }
   }
 
-  // Bell & Blocked Node public markers
+  // Semi-transparent circles on checked nodes when room setting showCatChecks is ON
+  if (game.showCatChecks && game.catCheckedNodes?.length) {
+    const seen = new Set();
+    game.catCheckedNodes.forEach(it => {
+      if (seen.has(it.nodeId) || !NODES[it.nodeId]) return;
+      seen.add(it.nodeId);
+      const n = NODES[it.nodeId];
+      drawRing(n.x, n.y, 21, it.hit ? 'rgba(52,211,153,0.55)' : 'rgba(148,163,184,0.55)', it.hit ? 'rgba(52,211,153,0.18)' : 'rgba(148,163,184,0.24)', 2.5);
+    });
+  }
+
+  // Augment Tokens (증강 토큰1 = 쥐목에 방울 달기, 증강 토큰2 = 넌 못 지나간다.)
   if (game.bellNode && NODES[game.bellNode]) {
-    drawRing(NODES[game.bellNode].x, NODES[game.bellNode].y, 26, '#facc15', 'rgba(250,204,21,0.22)', 4);
+    drawSprite('token_aug1', NODES[game.bellNode].x, NODES[game.bellNode].y, 50);
   }
   if (game.blockedNode && game.blockedNodeRound === game.round && NODES[game.blockedNode]) {
-    drawRing(NODES[game.blockedNode].x, NODES[game.blockedNode].y, 26, '#ef4444', 'rgba(239,68,68,0.28)', 5);
+    drawSprite('token_aug2', NODES[game.blockedNode].x, NODES[game.blockedNode].y, 50);
   }
 
   // 3. Secret Cheeses & Mice (only present in Mouse View or Game Over)
