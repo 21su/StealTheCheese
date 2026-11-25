@@ -18,21 +18,21 @@ const CAT_CARDS = {
     { id: 'silver_2', tier: 'silver', name: '넌 못 지나간다.', tag: '방해', desc: '칸 1곳을 고른다. 다음 라운드 동안 쥐는 그 칸을 지나갈 수 없다.', active: true },
     { id: 'silver_3', tier: 'silver', name: '양보단 질', tag: '보조', desc: '브론즈 카드를 1장 없애고, 골드 카드를 1장 뽑는다.', instant: true },
     { id: 'silver_4', tier: 'silver', name: '질보단 양', tag: '보조', desc: '남은 브론즈 카드 두 장을 획득한다.', instant: true },
-    { id: 'silver_5', tier: 'silver', name: '실패는 두렵지않아', tag: '이동', desc: '단서 수색을 5번 실패했다면, 원하는 위치로 이동할 수 있다.', passive: true }
+    { id: 'silver_5', tier: 'silver', name: '실패는 두렵지않아', tag: '이동', desc: '단서 수색을 5번 실패했다면, 원하는 위치로 이동할 수 있다. 그 턴 행동할 수 없다.', passive: true }
   ],
   gold: [
     { id: 'gold_1', tier: 'gold', name: '라면 먹는 중', tag: '팀', desc: '이번 게임 동안 이동할 수 없는 대신 다른 고양이의 행동을 한 번씩 더 수행할 수 있다. 뽑은 능력도 사용 가능하다.', active: true },
-    { id: 'gold_2', tier: 'gold', name: '제트 팩 장착!', tag: '팀', desc: '포획할 수 없다. 턴을 1회 추가로 얻고 인접한 아군을 함께 이동시킬 수 있다.', passive: true },
+    { id: 'gold_2', tier: 'gold', name: '제트 팩 장착!', tag: '팀', desc: '다른 고양이와 인접한 칸으로 이동할 수 있다. 인접한 아군을 함께 이동시킬 수 있다.', passive: true },
     { id: 'gold_3', tier: 'gold', name: '질보단 양 II', tag: '보조', desc: '남은 실버 카드 두 장을 획득한다.', instant: true },
-    { id: 'gold_4', tier: 'gold', name: '금지된 인술', tag: '보조', desc: '행동하는 대신 분신을 하나 조종할 수 있다.', active: true },
+    { id: 'gold_4', tier: 'gold', name: '금지된 인술', tag: '보조', desc: '분신을 하나 조종할 수 있다. 분신을 움직인 턴 수색과 포획은 한 고양이로만 가능하다.', active: true },
     { id: 'gold_5', tier: 'gold', name: '카피닌묘', tag: '보조', desc: '다른 고양이의 카드를 하나 고른다. 그 카드와 같은 효과로 취급한다.', active: true }
   ]
 };
 
 const MOUSE_CARDS = [
-  { id: 'sprint', imgKey: 'mouse_card_sprint', name: '질주', desc: '도로를 따라 인접한 칸으로 2칸 연속 이동 (교차로의 고양이 무시 통과).' },
-  { id: 'wall', imgKey: 'mouse_card_wall', name: '담 넘기', desc: '같은 건물 블록(점선 구역) 안의 건너편 칸으로 즉시 뛰어넘기.' },
-  { id: 'hole', imgKey: 'mouse_card_hole', name: '쥐구멍 이동', desc: '쥐구멍 칸에 있을 때 마주 보는 반대편 구역의 쥐구멍으로 즉시 이동.' }
+  { id: 'sprint', imgKey: 'mouse_card_sprint', name: '질주', desc: '이동 1회를 대신해 칸을 2번 연속 이동한다. 고양이가 선 교차점도 지나갈 수 있다. 치즈 칸에는 쓸 수 없다.' },
+  { id: 'wall', imgKey: 'mouse_card_wall', name: '담 넘기', desc: '이동 1회를 대신해 같은 블록(점선으로 둘러싸인 구역) 안의 아무 칸으로 이동한다. 치즈 칸에는 쓸 수 없다.' },
+  { id: 'hole', imgKey: 'mouse_card_hole', name: '쥐구멍 이동', desc: '쥐구멍 칸에서 이동 1회를 대신해, 맞은편 쥐구멍 칸으로 이동한다.' }
 ];
 
 // Graph index
@@ -86,6 +86,7 @@ class GameEngine {
 
     this.state = {
       cheeseMode: options.cheeseMode === 'three' ? 'three' : 'classic',
+      showCatChecks: Boolean(options.showCatChecks),
       round: 1,
       turn: 1,
       phase: 'SETUP_CHEESE', // SETUP_CHEESE, SETUP_MICE, SETUP_CATS, MOUSE_TURN, CAT_TURN, DRAFT, GAME_OVER
@@ -96,6 +97,7 @@ class GameEngine {
       stolenTokens: [],
       cluesCurrent: [],
       cluesPast: [],
+      catCheckedNodes: [],
       specialTrackMarks: {},
       bellNode: null,
       blockedNode: null,
@@ -114,7 +116,7 @@ class GameEngine {
         movedThisTurn: false,
         pendingPos: null,
         pendingCard: null,
-        cards: { sprint: true, wall: true, hole: true },
+        cards: { sprint: 2, wall: 1, hole: 1 },
         trail: [],
         log: []
       })),
@@ -138,11 +140,13 @@ class GameEngine {
       setupCatIdx: 0,
       relocateAllowedQuads: null,
       draftOptions: [],
+      draftPickedCats: [],
       draftTier: 'silver',
       bannerEvent: null,
       lastActionPopup: null,
       publicLog: []
     };
+    this.replayFrames = [];
     this.addLog('🎲 1라운드 시작! 생쥐 팀이 치즈 3개를 비밀리에 배치합니다.');
   }
 
@@ -152,6 +156,23 @@ class GameEngine {
 
   setActionPopup(text, tone = 'info') {
     this.state.lastActionPopup = { id: Date.now() + Math.random(), text, tone };
+  }
+
+  recordFrame(caption) {
+    this.replayFrames.push({
+      round: this.state.round,
+      turn: this.state.turn,
+      phase: this.state.phase,
+      caption,
+      mice: this.state.mice.map(m => ({ id: m.id, name: m.name, img: m.img, pos: m.pos, hasCheese: m.hasCheese, delivered: m.delivered, trail: m.trail.slice() })),
+      cats: this.state.cats.map(c => ({ id: c.id, name: c.name, img: c.img, edgeId: c.edgeId })),
+      cloneCat: { active: this.state.cloneCat.active, edgeId: this.state.cloneCat.edgeId },
+      cheeses: this.state.cheeses.map(c => ({ nodeId: c.nodeId, stolenBy: c.stolenBy })),
+      cluesCurrent: this.state.cluesCurrent.slice(),
+      cluesPast: this.state.cluesPast.slice(),
+      bellNode: this.state.bellNode,
+      blockedNode: (this.state.blockedNode && this.state.blockedNodeRound === this.state.round) ? this.state.blockedNode : null
+    });
   }
 
   addLog(msg) {
@@ -208,17 +229,19 @@ class GameEngine {
         out.add(to);
       });
     } else if (cardType === 'sprint' && m.cards.sprint) {
+      const cheeseNodes = new Set(this.state.cheeses.filter(c => c.stolenBy === null).map(c => c.nodeId));
       NODE_ADJ[m.pos].forEach(({ to: mid }) => {
         if (mid === blocked) return;
         NODE_ADJ[mid].forEach(({ to }) => {
-          if (to === m.pos || to === otherPos || to === blocked) return;
+          if (to === m.pos || to === otherPos || to === blocked || cheeseNodes.has(to)) return;
           if (HOLES.includes(to) && usedHoles.has(to) && m.hasCheese) return;
           out.add(to);
         });
       });
     } else if (cardType === 'wall' && m.cards.wall) {
+      const cheeseNodes = new Set(this.state.cheeses.filter(c => c.stolenBy === null).map(c => c.nodeId));
       (WALL_ADJ[String(m.pos)] || []).forEach(to => {
-        if (to === otherPos || to === blocked) return;
+        if (to === otherPos || to === blocked || cheeseNodes.has(to)) return;
         if (HOLES.includes(to) && usedHoles.has(to) && m.hasCheese) return;
         out.add(to);
       });
@@ -231,14 +254,11 @@ class GameEngine {
     return Array.from(out);
   }
 
-  getCatReachableEdges(catId, isClone = false) {
+  getCatBaseReachableEdges(catId, isClone = false) {
     const cat = isClone ? this.state.cloneCat : this.state.cats[catId];
     if (!cat || cat.edgeId === null) return [];
     if (!isClone && this.catHasCard(cat, 'gold_1')) return [cat.edgeId];
     const occupied = this.getCatOccupiedEdges(isClone ? -1 : catId, isClone);
-    if (!isClone && this.catHasCard(cat, 'silver_5') && cat.failedSearches >= 5) {
-      return GRAPH.edges.map(e => e.id).filter(eid => eid === cat.edgeId || !occupied.has(eid));
-    }
     const maxSteps = (!isClone && cat.sprintMode && this.catHasCard(cat, 'silver_1')) ? 3 : 2;
     const dist = { [cat.edgeId]: 0 };
     const q = [cat.edgeId];
@@ -252,7 +272,27 @@ class GameEngine {
         }
       }
     }
-    return Object.keys(dist).map(Number).filter(eid => eid === cat.edgeId || !occupied.has(eid));
+    const res = new Set(Object.keys(dist).map(Number).filter(eid => eid === cat.edgeId || !occupied.has(eid)));
+    // 제트 팩 장착! (nerfed gold_2): 다른 고양이와 인접한 빈 교차로로도 이동 가능
+    if (!isClone && this.catHasCard(cat, 'gold_2')) {
+      this.state.cats.forEach(o => {
+        if (o.id !== catId && o.edgeId !== null) {
+          EDGE_ADJ[o.edgeId].forEach(eid => { if (!occupied.has(eid)) res.add(eid); });
+        }
+      });
+    }
+    return Array.from(res);
+  }
+
+  getCatReachableEdges(catId, isClone = false) {
+    const cat = isClone ? this.state.cloneCat : this.state.cats[catId];
+    if (!cat || cat.edgeId === null) return [];
+    if (!isClone && this.catHasCard(cat, 'gold_1')) return [cat.edgeId];
+    const occupied = this.getCatOccupiedEdges(isClone ? -1 : catId, isClone);
+    if (!isClone && this.catHasCard(cat, 'silver_5') && cat.failedSearches >= 5) {
+      return GRAPH.edges.map(e => e.id).filter(eid => eid === cat.edgeId || !occupied.has(eid));
+    }
+    return this.getCatBaseReachableEdges(catId, isClone);
   }
 
   // === ACTIONS ===
@@ -330,6 +370,7 @@ class GameEngine {
       this.state.setupCatIdx++;
     } else {
       this.startMouseTurn();
+      this.recordFrame('🎲 1라운드 시작! 생쥐·고양이 초기 배치 완료');
     }
     return { ok: true };
   }
@@ -367,7 +408,7 @@ class GameEngine {
       m.trail.push(m.pos);
       let cardNote = '';
       if (m.pendingCard) {
-        m.cards[m.pendingCard] = false;
+        m.cards[m.pendingCard] = Math.max(0, (m.cards[m.pendingCard] || 0) - 1);
         const cname = MOUSE_CARDS.find(c => c.id === m.pendingCard).name;
         cardNote = ` [${cname}]`;
         if (!this.state.specialTrackMarks[this.state.turn]) this.state.specialTrackMarks[this.state.turn] = [];
@@ -406,6 +447,7 @@ class GameEngine {
     });
 
     this.state.bellNode = null;
+    this.recordFrame(`🐭 ${this.state.round}R ${this.state.turn}T 생쥐 팀 이동 완료 (${this.state.mice.map(m => `${m.name}:#${m.pos}`).join(', ')})`);
     if (this.state.mice.every(m => m.delivered)) {
       this.handleRoundClear();
     } else {
@@ -418,7 +460,7 @@ class GameEngine {
     this.state.phase = 'CAT_TURN';
     this.state.cats.forEach(c => {
       c.actedThisTurn = false;
-      c.extraTurns = this.catHasCard(c, 'gold_2') ? 1 : 0;
+      c.extraTurns = 0;
       c.sprintMode = false;
       c.searchingThisTurn = false;
       c.searchedNodes = [];
@@ -514,9 +556,14 @@ class GameEngine {
     // Move validation (if already mid-search, stay locked on current edge!)
     const actor = isClone ? this.state.cloneCat : cat;
     const prevEdge = actor.edgeId;
+    let isSilver5Teleport = false;
     if (!cat.searchingThisTurn) {
       const legalEdges = this.getCatReachableEdges(catId, isClone);
       if (!legalEdges.includes(edgeId)) return { error: '이동할 수 없는 교차로입니다.' };
+      if (!isClone && this.catHasCard(cat, 'silver_5') && cat.failedSearches >= 5) {
+        const baseReach = this.getCatBaseReachableEdges(catId, false);
+        if (!baseReach.includes(edgeId)) isSilver5Teleport = true;
+      }
       actor.edgeId = edgeId;
     } else {
       edgeId = actor.edgeId;
@@ -533,10 +580,21 @@ class GameEngine {
       }
     }
 
-    if (!isClone && cat.sprintMode && this.catHasCard(cat, 'silver_1')) {
-      this.addLog(`💨 ${cat.name}가 [날쌘 걸음]으로 질주 이동했습니다 (행동 불가).`);
+    if (isSilver5Teleport) {
+      const msg = `✨ ${cat.name}가 [실패는 두렵지않아]로 원하는 위치로 이동했습니다 (그 턴 행동 불가).`;
+      this.addLog(msg);
+      this.setBanner(msg, 'cat');
+      this.recordFrame(msg);
       this.finishCat(catId);
-        return { ok: true };
+      return { ok: true };
+    }
+
+    if (!isClone && cat.sprintMode && this.catHasCard(cat, 'silver_1')) {
+      const msg = `💨 ${cat.name}가 [날쌘 걸음]으로 질주 이동했습니다 (행동 불가).`;
+      this.addLog(msg);
+      this.recordFrame(msg);
+      this.finishCat(catId);
+      return { ok: true };
     }
 
     const adj = this.getCatAdjacentNodes(edgeId, !isClone && this.catHasLonelyBonus(cat));
@@ -551,6 +609,7 @@ class GameEngine {
 
       const activeTrails = new Set();
       this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(t => activeTrails.add(t)); });
+      this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, turn: this.state.turn });
       if (activeTrails.has(nid)) {
         if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
           this.state.cluesCurrent.push(nid);
@@ -559,11 +618,13 @@ class GameEngine {
         this.addLog(msg);
         this.setBanner(msg, 'cat');
         this.setActionPopup(`🐾 #${nid}번 칸에서 흔적을 발견했습니다!`, 'found');
+        this.recordFrame(msg);
         this.finishCat(catId);
       } else {
         const remaining = adj.filter(x => !cat.searchedNodes.includes(x));
         this.addLog(`🔍 ${actorName} #${nid}번 칸 수색 → 흔적 없음${remaining.length ? ` (남은 칸 ${remaining.length}곳)` : ''}`);
         this.setActionPopup(`🔍 #${nid}번 칸에 흔적이 없습니다.`, 'miss');
+        this.recordFrame(`🔍 ${actorName} #${nid}번 칸 수색 → 흔적 없음`);
         if (remaining.length === 0) {
           if (!isClone) cat.failedSearches++;
           this.finishCat(catId);
@@ -584,6 +645,7 @@ class GameEngine {
       const checked = [];
       for (const nid of validTargets) {
         checked.push(nid);
+        this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, turn: this.state.turn });
         if (activeTrails.has(nid)) {
           hitNode = nid;
           if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
@@ -595,15 +657,17 @@ class GameEngine {
       if (hitNode !== null) {
         this.addLog(`🐾 ${actorName} 수색(${checked.map(n=>'#'+n).join('→')}) → #${hitNode}번 칸 발자국 발견! (수색 종료)`);
         this.setActionPopup(`🐾 ${actorName}: #${hitNode}번 칸에서 흔적을 발견했습니다!`, 'found');
+        this.recordFrame(`🐾 ${actorName} 수색 → #${hitNode}번 칸 발자국 발견!`);
       } else {
         if (!isClone) cat.failedSearches++;
         this.addLog(`🔍 ${actorName} 수색(${checked.map(n=>'#'+n).join(', ')}) → 흔적 없음`);
         this.setActionPopup(`🔍 ${actorName}: 주변 구역에 흔적이 없습니다.`, 'miss');
+        this.recordFrame(`🔍 ${actorName} 수색(${checked.map(n=>'#'+n).join(', ')}) → 흔적 없음`);
       }
       this.finishCat(catId);
     } else if (actionType === 'capture') {
       if (cat.searchingThisTurn) return { error: '이미 수색을 시작해 포획할 수 없습니다.' };
-      if (!isClone && this.catHasCard(cat, 'gold_2')) return { error: '[제트 팩 장착!] 고양이는 포획할 수 없습니다.' };
+      
       const target = targetNodes[0];
       if (!adj.includes(target)) return { error: '인접한 원형 칸 1곳을 선택하세요.' };
       const caught = this.state.mice.find(m => !m.delivered && m.pos === target);
@@ -613,10 +677,12 @@ class GameEngine {
         this.state.phase = 'GAME_OVER';
         this.state.winner = 'cat';
         this.state.winReason = `${actorName}가 #${target}번 칸에서 ${caught.name}를 포획했습니다!`;
+        this.recordFrame(`💥 ${this.state.winReason}`);
         return { ok: true };
       }
       this.addLog(`❌ ${actorName}가 #${target}번 칸 포획 시도 → 실패!`);
       this.setActionPopup(`❌ #${target}번 칸 포획 실패! 흔적이 없습니다.`, 'fail');
+      this.recordFrame(`❌ ${actorName} #${target}번 칸 포획 실패`);
       this.finishCat(catId);
     } else {
       return { error: '올바른 행동을 선택하세요.' };
@@ -640,6 +706,7 @@ class GameEngine {
         this.state.phase = 'GAME_OVER';
         this.state.winner = 'cat';
         this.state.winReason = `${this.state.round}라운드 제한 시간(15턴) 초과로 고양이 팀이 승리했습니다!`;
+        this.recordFrame(`⏰ ${this.state.winReason}`);
       } else {
         this.state.turn++;
         this.startMouseTurn();
@@ -653,6 +720,7 @@ class GameEngine {
       this.state.phase = 'GAME_OVER';
       this.state.winner = 'mouse';
       this.state.winReason = '생쥐 팀이 총 3라운드를 모두 완수하여 최종 승리했습니다!';
+      this.recordFrame(`🏆 ${this.state.winReason}`);
       return;
     }
     this.state.phase = 'DRAFT';
@@ -660,6 +728,7 @@ class GameEngine {
     this.state.draftTier = (this.state.round === 1 && !hasBoost) ? 'silver' : 'gold';
     const deck = this.state.decks[this.state.draftTier];
     this.state.draftOptions = [];
+    this.state.draftPickedCats = [];
     for (let i = 0; i < 3 && deck.length; i++) this.state.draftOptions.push(deck.pop());
   }
 
@@ -668,8 +737,14 @@ class GameEngine {
     const card = this.state.draftOptions[cardIdx];
     const cat = this.state.cats[catId];
     if (!card || !cat) return { error: '유효하지 않은 선택입니다.' };
+    if (this.state.draftPickedCats.includes(catId)) return { error: '이미 이번 라운드 증강을 선택한 고양이입니다.' };
+
+    this.state.draftOptions.splice(cardIdx, 1);
+    this.state.draftPickedCats.push(catId);
     cat.cards.push(card);
-    this.addLog(`✨ ${cat.name}가 [${card.name}] 증강 카드를 장착했습니다!`);
+    this.addLog(`✨ ${cat.name}가 [${card.name}] 증강 카드를 장착했습니다! (${this.state.draftPickedCats.length}/3)`);
+    this.setBanner(`✨ ${cat.name}가 [${card.name}] 증강을 선택했습니다!`, 'cat');
+
     if (card.id === 'silver_3') {
       const bIdx = cat.cards.findIndex(c => c.tier === 'bronze');
       if (bIdx >= 0) cat.cards.splice(bIdx, 1);
@@ -680,11 +755,17 @@ class GameEngine {
       for (let i = 0; i < 2 && this.state.decks.silver.length; i++) cat.cards.push(this.state.decks.silver.pop());
     }
 
+    // Wait until all 3 cats have picked 1 card each (or no cards remain)
+    if (this.state.draftPickedCats.length < 3 && this.state.draftOptions.length > 0) {
+      return { ok: true };
+    }
+
     // Advance to next round
     this.state.round++;
     this.state.turn = 1;
     this.state.cluesPast = Array.from(new Set([...this.state.cluesPast, ...this.state.cluesCurrent]));
     this.state.cluesCurrent = [];
+    this.state.catCheckedNodes = [];
     this.state.specialTrackMarks = {};
     this.state.usedHolesThisRound = [];
     this.state.bellNode = null;
@@ -741,7 +822,11 @@ class GameEngine {
       if (humansRemaining) return false;
       return this.state.cats.some(c => c.isAI && !c.actedThisTurn);
     }
-    if (this.state.phase === 'DRAFT') return catsAllAI;
+    if (this.state.phase === 'DRAFT') {
+      const humanWaiting = this.state.cats.some(c => !c.isAI && !this.state.draftPickedCats.includes(c.id));
+      if (humanWaiting) return false;
+      return this.state.cats.some(c => c.isAI && !this.state.draftPickedCats.includes(c.id)) && this.state.draftOptions.length > 0;
+    }
     return false;
   }
 
@@ -792,8 +877,9 @@ class GameEngine {
       return true;
     }
     if (this.state.phase === 'DRAFT') {
-      const targetCat = this.state.cats.slice().sort((a, b) => a.cards.length - b.cards.length)[0];
-      this.selectDraftCard(0, targetCat.id);
+      const aiCat = this.state.cats.find(c => c.isAI && !this.state.draftPickedCats.includes(c.id));
+      if (!aiCat || !this.state.draftOptions.length) return false;
+      this.selectDraftCard(0, aiCat.id);
       return true;
     }
     return false;
@@ -804,6 +890,7 @@ class GameEngine {
     const showSecrets = (viewerTeam === 'mouse' || this.state.phase === 'GAME_OVER');
     return {
       cheeseMode: this.state.cheeseMode,
+      showCatChecks: this.state.showCatChecks,
       round: this.state.round,
       turn: this.state.turn,
       phase: this.state.phase,
@@ -812,6 +899,8 @@ class GameEngine {
       stolenTokens: this.state.stolenTokens,
       cluesCurrent: this.state.cluesCurrent,
       cluesPast: this.state.cluesPast,
+      catCheckedNodes: this.state.catCheckedNodes,
+      replayFrames: this.state.phase === 'GAME_OVER' ? this.replayFrames : null,
       specialTrackMarks: this.state.specialTrackMarks,
       bellNode: this.state.bellNode,
       blockedNode: this.state.blockedNode,
@@ -821,6 +910,7 @@ class GameEngine {
       setupCatIdx: this.state.setupCatIdx,
       relocateAllowedQuads: showSecrets ? this.state.relocateAllowedQuads : null,
       draftOptions: (viewerTeam === 'cat' || this.state.phase === 'GAME_OVER') ? this.state.draftOptions : [],
+      draftPickedCats: this.state.draftPickedCats,
       draftTier: this.state.draftTier,
       bannerEvent: this.state.bannerEvent,
       lastActionPopup: this.state.lastActionPopup,
@@ -837,8 +927,8 @@ class GameEngine {
         hasCheese: m.hasCheese,
         delivered: m.delivered,
         movedThisTurn: m.movedThisTurn,
-        usedCardCount: Object.values(m.cards).filter(v => !v).length,
-        totalCardCount: 3
+        usedCardCount: 4 - ((m.cards.sprint || 0) + (m.cards.wall || 0) + (m.cards.hole || 0)),
+        totalCardCount: 4
         // pos, trail, log, pendingPos, cards (types) are COMPLETELY OMITTED for Cats!
       }))
     };

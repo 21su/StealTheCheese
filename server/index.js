@@ -30,6 +30,7 @@ function getRoomPublicLobby(room) {
     code: room.code,
     hostToken: room.hostToken,
     cheeseMode: room.cheeseMode || 'classic',
+    showCatChecks: Boolean(room.showCatChecks),
     started: Boolean(room.engine),
     seats: room.seats.map(s => ({
       seatKey: s.seatKey,
@@ -124,6 +125,7 @@ io.on('connection', socket => {
       code,
       hostToken: pToken,
       cheeseMode: 'classic',
+      showCatChecks: true,
       engine: null,
       players: new Map(),
       seats: [
@@ -250,10 +252,11 @@ io.on('connection', socket => {
     broadcastRoom(room);
   });
 
-  socket.on('room:setMode', ({ cheeseMode }) => {
+  socket.on('room:setMode', ({ cheeseMode, showCatChecks }) => {
     const room = rooms.get(socket.data?.roomCode);
     if (!room || room.engine || room.hostToken !== socket.data.token) return;
-    room.cheeseMode = cheeseMode === 'three' ? 'three' : 'classic';
+    if (cheeseMode !== undefined) room.cheeseMode = cheeseMode === 'three' ? 'three' : 'classic';
+    if (showCatChecks !== undefined) room.showCatChecks = Boolean(showCatChecks);
     broadcastRoom(room);
   });
 
@@ -264,7 +267,7 @@ io.on('connection', socket => {
       mice: room.seats.filter(s => s.team === 'mouse').map(s => ({ name: s.playerName || s.label, isAI: !s.token })),
       cats: room.seats.filter(s => s.team === 'cat').map(s => ({ name: s.playerName || s.label, isAI: !s.token }))
     };
-    room.engine = new GameEngine(seatCfg, { cheeseMode: room.cheeseMode });
+    room.engine = new GameEngine(seatCfg, { cheeseMode: room.cheeseMode, showCatChecks: room.showCatChecks });
     broadcastRoom(room);
     scheduleRoomAI(room);
   });
@@ -312,7 +315,11 @@ io.on('connection', socket => {
           res = room.engine.catAction({ ...payload, catId: payload.catId });
         }
       } else if (type === 'selectDraftCard') {
-        res = room.engine.selectDraftCard(payload.cardIdx, payload.catId);
+        if (!myIndices.includes(payload.catId)) {
+          res = { error: '본인이 조종하는 고양이의 증강만 선택할 수 있습니다!' };
+        } else {
+          res = room.engine.selectDraftCard(payload.cardIdx, payload.catId);
+        }
       }
     }
 
