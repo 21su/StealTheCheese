@@ -88,18 +88,26 @@ async function bootAssets() {
   GRAPH.nodes.forEach(n => { NODES[n.id] = n; NODE_ADJ[n.id] = []; });
   const nodeEdges = {};
   GRAPH.nodes.forEach(n => { nodeEdges[n.id] = []; });
+  const roadMap = new Map();
   GRAPH.edges.forEach(e => {
     EDGES[e.id] = e;
     if (e.red) RED_EDGES.push(e.id);
-    nodeEdges[e.u].push(e.id);
-    nodeEdges[e.v].push(e.id);
-    NODE_ADJ[e.u].push({ to: e.v, edgeId: e.id });
-    NODE_ADJ[e.v].push({ to: e.u, edgeId: e.id });
+    const touchNodes = e.adjNodes || [e.u, e.v];
+    touchNodes.forEach(nid => nodeEdges[nid].push(e.id));
+    const a = Math.min(e.u, e.v), b = Math.max(e.u, e.v);
+    const key = `${a}-${b}`;
+    if (!roadMap.has(key)) roadMap.set(key, { u: e.u, v: e.v, edgeIds: [] });
+    roadMap.get(key).edgeIds.push(e.id);
+  });
+  roadMap.forEach(({ u, v, edgeIds }) => {
+    NODE_ADJ[u].push({ to: v, edgeIds });
+    NODE_ADJ[v].push({ to: u, edgeIds });
   });
   GRAPH.edges.forEach(e => {
     const s = new Set();
-    nodeEdges[e.u].forEach(id => { if (id !== e.id) s.add(id); });
-    nodeEdges[e.v].forEach(id => { if (id !== e.id) s.add(id); });
+    const touchNodes = e.adjNodes || [e.u, e.v];
+    touchNodes.forEach(nid => nodeEdges[nid].forEach(id => { if (id !== e.id) s.add(id); }));
+    if (e.partnerEdgeId !== undefined) s.add(e.partnerEdgeId);
     EDGE_ADJ[e.id] = Array.from(s);
   });
 
@@ -129,18 +137,26 @@ function getCatOccupiedEdges(game, excludeCatId = -1) {
   return s;
 }
 
-function catHasLonelyBonus(game, cat) {
-  if (!catHasCard(cat, 'bronze_4') || cat.edgeId === null) return false;
-  const myQ = NODES[EDGES[cat.edgeId].u].q;
-  return !game.cats.some(o => o.id !== cat.id && o.edgeId !== null && NODES[EDGES[o.edgeId].u].q === myQ);
+function getClientEdgeQuadrant(edgeId) {
+  const e = EDGES[edgeId];
+  if (!e) return 0;
+  const nid = e.adjNodes ? e.adjNodes[0] : e.u;
+  return NODES[nid].q;
 }
 
-function getClientLonelyExtraNodes(game, cat) {
-  if (!cat || !catHasLonelyBonus(game, cat) || cat.lonelyBonusUsedThisTurn || !cat.searchedNodes?.length) return [];
+function catHasLonelyBonus(game, cat, overrideEdgeId = null) {
+  const eid = overrideEdgeId !== null ? overrideEdgeId : cat?.edgeId;
+  if (!catHasCard(cat, 'bronze_4') || eid === null || eid === undefined) return false;
+  const myQ = getClientEdgeQuadrant(eid);
+  return !game.cats.some(o => o.id !== cat.id && o.edgeId !== null && getClientEdgeQuadrant(o.edgeId) === myQ);
+}
+
+function getClientLonelyExtraNodes(game, cat, overrideEdgeId = null) {
+  if (!cat || !catHasLonelyBonus(game, cat, overrideEdgeId) || cat.lonelyBonusUsedThisTurn || !cat.searchedNodes?.length) return [];
   const searchedSet = new Set(cat.searchedNodes);
   const out = new Set();
   cat.searchedNodes.forEach(s => {
-    (NODE_ADJ[s] || []).forEach(adjN => {
+    (NODE_ADJ[s] || []).forEach(({ to: adjN }) => {
       if (!searchedSet.has(adjN)) out.add(adjN);
     });
   });
@@ -150,9 +166,9 @@ function getClientLonelyExtraNodes(game, cat) {
 function getCatAdjacentNodes(edgeId, extraRange = false) {
   const e = EDGES[edgeId];
   if (!e) return [];
-  const base = new Set([e.u, e.v]);
+  const base = new Set(e.adjNodes || [e.u, e.v]);
   if (extraRange) {
-    [e.u, e.v].forEach(nid => (NODE_ADJ[nid] || []).forEach(({ to }) => base.add(to)));
+    Array.from(base).forEach(nid => (NODE_ADJ[nid] || []).forEach(({ to }) => base.add(to)));
   }
   return Array.from(base);
 }
@@ -239,8 +255,8 @@ function getMouseLegalMoves(game, mouseId, cardType = null) {
   const out = new Set();
 
   if (!cardType) {
-    (NODE_ADJ[m.pos] || []).forEach(({ to, edgeId }) => {
-      if (catEdges.has(edgeId) || to === otherPos || to === blocked) return;
+    (NODE_ADJ[m.pos] || []).forEach(({ to, edgeIds }) => {
+      if (edgeIds.some(eid => catEdges.has(eid)) || to === otherPos || to === blocked) return;
       if (HOLES.includes(to) && usedHoles.has(to) && m.hasCheese) return;
       out.add(to);
     });
@@ -1052,7 +1068,7 @@ function renderControls(game, me) {
               <span class="text-xs font-bold text-emerald-300">🔍 단서 수색 진행 중</span>
               <button onclick="endCatSearchEarly()" class="px-3 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-100 font-extrabold text-xs">수색 그만하기 (턴 종료)</button>
             </div>
-            <div class="text-[11px] text-stone-300">${!localUI.controllingClone && getClientLonelyExtraNodes(game, game.cats[localUI.selectedCatId]).length ? '초록/하늘색 칸을 클릭해 계속 탐색(외롭지 않아 추가 1칸 가능)하거나 종료하세요.' : '초록색 칸을 클릭해 계속 탐색하거나 수색을 마칠 수 있습니다.'}</div>
+            <div class="text-[11px] text-stone-300">${!localUI.controllingClone && getClientLonelyExtraNodes(game, game.cats[localUI.selectedCatId], localUI.catMoveEdge).length ? '초록/하늘색 칸을 클릭해 계속 탐색(외롭지 않아 추가 1칸 가능)하거나 종료하세요.' : '초록색 칸을 클릭해 계속 탐색하거나 수색을 마칠 수 있습니다.'}</div>
           </div>
         ` : `
           ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? `
@@ -1358,7 +1374,7 @@ function renderBoard() {
       }
       if (localUI.catMoveEdge !== null && (localUI.catMode === 'search' || localUI.catMode === 'capture')) {
         const baseAdj = getCatAdjacentNodes(localUI.catMoveEdge, false);
-        const lonelyExtra = (!isClone && !isCap) ? getClientLonelyExtraNodes(game, cat) : [];
+        const lonelyExtra = (!isClone && !isCap) ? getClientLonelyExtraNodes(game, cat, localUI.catMoveEdge) : [];
         const adjNodes = Array.from(new Set([...baseAdj, ...lonelyExtra]));
         const searched = new Set(cat?.searchedNodes || []);
         const isCap = (localUI.catMode === 'capture');

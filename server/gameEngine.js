@@ -42,18 +42,28 @@ const EDGES = {};
 const NODE_EDGES = {};
 const NODE_ADJ = {};
 Object.keys(NODES).forEach(id => { NODE_EDGES[id] = []; NODE_ADJ[id] = []; });
+const roadMap = new Map();
 GRAPH.edges.forEach(e => {
   EDGES[e.id] = e;
-  NODE_EDGES[e.u].push(e.id);
-  NODE_EDGES[e.v].push(e.id);
-  NODE_ADJ[e.u].push({ to: e.v, edgeId: e.id });
-  NODE_ADJ[e.v].push({ to: e.u, edgeId: e.id });
+  const touchNodes = e.adjNodes || [e.u, e.v];
+  touchNodes.forEach(nid => NODE_EDGES[nid].push(e.id));
+  const a = Math.min(e.u, e.v), b = Math.max(e.u, e.v);
+  const key = `${a}-${b}`;
+  if (!roadMap.has(key)) roadMap.set(key, { u: e.u, v: e.v, edgeIds: [] });
+  roadMap.get(key).edgeIds.push(e.id);
+});
+roadMap.forEach(({ u, v, edgeIds }) => {
+  NODE_ADJ[u].push({ to: v, edgeIds });
+  NODE_ADJ[v].push({ to: u, edgeIds });
 });
 const EDGE_ADJ = {};
 GRAPH.edges.forEach(e => {
   const s = new Set();
-  NODE_EDGES[e.u].forEach(eid => { if (eid !== e.id) s.add(eid); });
-  NODE_EDGES[e.v].forEach(eid => { if (eid !== e.id) s.add(eid); });
+  const touchNodes = e.adjNodes || [e.u, e.v];
+  touchNodes.forEach(nid => {
+    NODE_EDGES[nid].forEach(eid => { if (eid !== e.id) s.add(eid); });
+  });
+  if (e.partnerEdgeId !== undefined) s.add(e.partnerEdgeId);
   EDGE_ADJ[e.id] = Array.from(s);
 });
 
@@ -199,18 +209,26 @@ class GameEngine {
     return s;
   }
 
-  catHasLonelyBonus(cat) {
-    if (!this.catHasCard(cat, 'bronze_4') || cat.edgeId === null) return false;
-    const myQ = NODES[EDGES[cat.edgeId].u].q;
-    return !this.state.cats.some(o => o.id !== cat.id && o.edgeId !== null && NODES[EDGES[o.edgeId].u].q === myQ);
+  getEdgeQuadrant(edgeId) {
+    const e = EDGES[edgeId];
+    if (!e) return 0;
+    const nid = e.adjNodes ? e.adjNodes[0] : e.u;
+    return NODES[nid].q;
   }
 
-  getCatLonelyExtraNodes(cat) {
-    if (!cat || !this.catHasLonelyBonus(cat) || cat.lonelyBonusUsedThisTurn || !cat.searchedNodes?.length) return [];
+  catHasLonelyBonus(cat, overrideEdgeId = null) {
+    const eid = overrideEdgeId !== null ? overrideEdgeId : cat?.edgeId;
+    if (!this.catHasCard(cat, 'bronze_4') || eid === null || eid === undefined) return false;
+    const myQ = this.getEdgeQuadrant(eid);
+    return !this.state.cats.some(o => o.id !== cat.id && o.edgeId !== null && this.getEdgeQuadrant(o.edgeId) === myQ);
+  }
+
+  getCatLonelyExtraNodes(cat, overrideEdgeId = null) {
+    if (!cat || !this.catHasLonelyBonus(cat, overrideEdgeId) || cat.lonelyBonusUsedThisTurn || !cat.searchedNodes?.length) return [];
     const searchedSet = new Set(cat.searchedNodes);
     const out = new Set();
     for (const s of cat.searchedNodes) {
-      for (const adjN of NODE_ADJ[s] || []) {
+      for (const { to: adjN } of NODE_ADJ[s] || []) {
         if (!searchedSet.has(adjN)) out.add(adjN);
       }
     }
@@ -219,9 +237,9 @@ class GameEngine {
 
   getCatAdjacentNodes(edgeId, extraRange = false) {
     const e = EDGES[edgeId];
-    const base = new Set([e.u, e.v]);
+    const base = new Set(e.adjNodes || [e.u, e.v]);
     if (extraRange) {
-      [e.u, e.v].forEach(nid => NODE_ADJ[nid].forEach(({ to }) => base.add(to)));
+      Array.from(base).forEach(nid => NODE_ADJ[nid].forEach(({ to }) => base.add(to)));
     }
     return Array.from(base);
   }
@@ -237,8 +255,8 @@ class GameEngine {
     const out = new Set();
 
     if (!cardType) {
-      NODE_ADJ[m.pos].forEach(({ to, edgeId }) => {
-        if (catEdges.has(edgeId) || to === otherPos || to === blocked) return;
+      NODE_ADJ[m.pos].forEach(({ to, edgeIds }) => {
+        if (edgeIds.some(eid => catEdges.has(eid)) || to === otherPos || to === blocked) return;
         if (HOLES.includes(to) && usedHoles.has(to) && m.hasCheese) return;
         out.add(to);
       });
