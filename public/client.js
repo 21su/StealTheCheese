@@ -31,6 +31,7 @@ let localUI = {
   controllingClone: false,
   draftCardIdx: null,
   sideDrawerOpen: false,
+  catChecksEnabled: true,
   replayActive: false,
   replayIdx: 0,
   replayPlaying: false
@@ -339,21 +340,50 @@ document.getElementById('btnLeaveRoom').addEventListener('click', leaveCurrentRo
 function renderCatChecksPanel(game) {
   const list = document.getElementById('catChecksList');
   const cnt = document.getElementById('catChecksCount');
+  const toggleBtn = document.getElementById('btnToggleCatChecks');
   if (!list || !cnt) return;
+  const enabled = localUI.catChecksEnabled !== false;
+  if (toggleBtn) {
+    toggleBtn.textContent = enabled ? 'ON' : 'OFF';
+    toggleBtn.className = enabled
+      ? 'px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-400/70 text-emerald-200 transition'
+      : 'px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-400 transition';
+  }
   const items = game.catCheckedNodes || [];
   const map = new Map();
-  items.forEach(it => map.set(it.nodeId, it));
+  items.forEach(it => map.set(`${it.round || 1}-${it.nodeId}`, it));
   const arr = Array.from(map.values());
-  cnt.textContent = `${arr.length}곳 확인${game.showCatChecks ? ' · 보드 표시 ON' : ''}`;
+  if (!enabled) {
+    cnt.textContent = '사용 안 함 (OFF)';
+    list.classList.add('hidden');
+    return;
+  }
+  list.classList.remove('hidden');
+  cnt.textContent = `전체 ${arr.length}건${game.showCatChecks ? ' · 보드 원 ON' : ''}`;
   if (!arr.length) {
     list.innerHTML = '<span class="text-stone-500">아직 탐지한 칸이 없습니다.</span>';
     return;
   }
-  list.innerHTML = arr.map(it => `
-    <span title="${it.by} (${it.turn}턴) — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-2 py-0.5 rounded-md font-bold border ${it.hit ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200' : 'bg-stone-800/90 border-stone-600 text-stone-300'}">
-      #${it.nodeId}${it.hit ? ' 🐾' : ''}
-    </span>`).join('');
+  list.innerHTML = arr.map(it => {
+    const r = it.round || 1;
+    const isCur = r === game.round;
+    const rBadge = `<span class="opacity-75 mr-0.5">${r}R</span>`;
+    const cls = it.hit
+      ? (isCur ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200' : 'bg-emerald-950/50 border-emerald-700/60 text-emerald-300/80')
+      : (isCur ? 'bg-stone-800/90 border-stone-500 text-stone-200' : 'bg-stone-900/80 border-stone-700 text-stone-400');
+    return `
+    <span title="${r}라운드 ${it.turn}턴 · ${it.by} — ${it.hit ? '발자국 발견' : '흔적 없음'}" class="px-2 py-0.5 rounded-md font-bold border ${cls}">
+      ${rBadge}#${it.nodeId}${it.hit ? ' 🐾' : ''}
+    </span>`;
+  }).join('');
 }
+document.getElementById('btnToggleCatChecks')?.addEventListener('click', () => {
+  localUI.catChecksEnabled = !localUI.catChecksEnabled;
+  if (roomState?.game) {
+    renderCatChecksPanel(roomState.game);
+    drawBoard();
+  }
+});
 
 // === FULL-GAME REPLAY PLAYER ===
 function stopReplayTimer() {
@@ -1177,7 +1207,7 @@ function renderBoard() {
   }
 
   // Semi-transparent circles on checked nodes when room setting showCatChecks is ON
-  if (game.showCatChecks && game.catCheckedNodes?.length) {
+  if (localUI.catChecksEnabled !== false && game.showCatChecks && game.catCheckedNodes?.length) {
     const seen = new Set();
     game.catCheckedNodes.forEach(it => {
       if (seen.has(it.nodeId) || !NODES[it.nodeId]) return;
