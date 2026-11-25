@@ -10,7 +10,7 @@ const CAT_CARDS = {
     { id: 'bronze_1', tier: 'bronze', name: '합류는 기본 소양', tag: '이동', desc: '이번 게임에서 한 번만 다른 고양이와 인접한 칸으로 이동할 수 있다. 그 턴 행동할 수 없다.', once: true, active: true },
     { id: 'bronze_2', tier: 'bronze', name: '증강된 힘', tag: '보조', desc: '다음 라운드에 실버 카드 대신 골드 카드를 뽑습니다.', passive: true },
     { id: 'bronze_3', tier: 'bronze', name: '쥐목에 방울 달기', tag: '정보', desc: '칸 1곳을 고른다. 다음 턴에 쥐가 그 칸을 지나면 즉시 알려야 한다.', active: true },
-    { id: 'bronze_4', tier: 'bronze', name: '고양이는 외롭지 않아', tag: '수색', desc: '같은 구역에 다른 고양이가 없다면 수색 범위가 1칸 늘어난다.', passive: true },
+    { id: 'bronze_4', tier: 'bronze', name: '고양이는 외롭지 않아', tag: '수색', desc: '같은 구역에 다른 고양이가 없다면 수색 후 수색한 칸과 인접한 칸 하나를 추가로 수색할 수 있다.', passive: true },
     { id: 'bronze_5', tier: 'bronze', name: '니가 와', tag: '팀', desc: '이번 게임에서 한 번만 다른 고양이 한 마리를 자신과 인접한 칸으로 이동시킨다. 이 턴 행동할 수 없다.', once: true, active: true }
   ],
   silver: [
@@ -134,7 +134,8 @@ class GameEngine {
         sprintMode: false,
         usedExtraMoveThisTurn: false,
         searchingThisTurn: false,
-        searchedNodes: []
+        searchedNodes: [],
+        lonelyBonusUsedThisTurn: false
       })),
       cloneCat: { active: false, ownerId: null, edgeId: null },
       setupMouseIdx: 0,
@@ -202,6 +203,18 @@ class GameEngine {
     if (!this.catHasCard(cat, 'bronze_4') || cat.edgeId === null) return false;
     const myQ = NODES[EDGES[cat.edgeId].u].q;
     return !this.state.cats.some(o => o.id !== cat.id && o.edgeId !== null && NODES[EDGES[o.edgeId].u].q === myQ);
+  }
+
+  getCatLonelyExtraNodes(cat) {
+    if (!cat || !this.catHasLonelyBonus(cat) || cat.lonelyBonusUsedThisTurn || !cat.searchedNodes?.length) return [];
+    const searchedSet = new Set(cat.searchedNodes);
+    const out = new Set();
+    for (const s of cat.searchedNodes) {
+      for (const adjN of NODE_ADJ[s] || []) {
+        if (!searchedSet.has(adjN)) out.add(adjN);
+      }
+    }
+    return Array.from(out);
   }
 
   getCatAdjacentNodes(edgeId, extraRange = false) {
@@ -484,6 +497,7 @@ class GameEngine {
       c.usedExtraMoveThisTurn = false;
       c.searchingThisTurn = false;
       c.searchedNodes = [];
+      c.lonelyBonusUsedThisTurn = false;
     });
   }
 
@@ -619,13 +633,19 @@ class GameEngine {
       return { error: '날쌘 걸음으로 추가 이동(3칸)한 턴에는 포획할 수 없습니다. 단서 수색만 가능합니다.' };
     }
 
-    const adj = this.getCatAdjacentNodes(edgeId, !isClone && this.catHasLonelyBonus(cat));
+    const baseAdj = this.getCatAdjacentNodes(edgeId, false);
+    const lonelyExtra = !isClone ? this.getCatLonelyExtraNodes(cat) : [];
+    const allowedSearch = Array.from(new Set([...baseAdj, ...lonelyExtra]));
     const actorName = isClone ? '분신 고양이' : cat.name;
 
     if (actionType === 'searchStep') {
       const nid = targetNodes[0];
-      if (!adj.includes(nid)) return { error: '현재 고양이의 수색 범위 내 칸을 클릭하세요.' };
+      if (!allowedSearch.includes(nid)) return { error: '현재 고양이의 수색 범위 내 칸을 클릭하세요.' };
       if (cat.searchedNodes.includes(nid)) return { error: '이번 턴에 이미 수색한 칸입니다.' };
+      const usedLonelyExtraNow = !baseAdj.includes(nid);
+      if (usedLonelyExtraNow) {
+        cat.lonelyBonusUsedThisTurn = true;
+      }
       cat.searchingThisTurn = true;
       cat.searchedNodes.push(nid);
 
@@ -636,18 +656,20 @@ class GameEngine {
         if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
           this.state.cluesCurrent.push(nid);
         }
-        const msg = `🐾 ${actorName} #${nid}번 칸 수색 → 발자국 발견! (수색 즉시 종료)`;
+        const msg = `🐾 ${actorName} #${nid}번 칸 ${usedLonelyExtraNow ? '추가 ' : ''}수색 → 발자국 발견! (수색 즉시 종료)`;
         this.addLog(msg);
         this.setBanner(msg, 'cat');
         this.setActionPopup(`🐾 #${nid}번 칸에서 흔적을 발견했습니다!`, 'found');
         this.recordFrame(msg);
         this.finishCat(catId);
       } else {
-        const remaining = adj.filter(x => !cat.searchedNodes.includes(x));
-        this.addLog(`🔍 ${actorName} #${nid}번 칸 수색 → 흔적 없음${remaining.length ? ` (남은 칸 ${remaining.length}곳)` : ''}`);
+        const remainingBase = baseAdj.filter(x => !cat.searchedNodes.includes(x));
+        const nextLonelyExtra = !isClone ? this.getCatLonelyExtraNodes(cat) : [];
+        const hasMore = remainingBase.length > 0 || nextLonelyExtra.length > 0;
+        this.addLog(`🔍 ${actorName} #${nid}번 칸 ${usedLonelyExtraNow ? '추가 ' : ''}수색 → 흔적 없음${remainingBase.length ? ` (남은 기본 ${remainingBase.length}곳)` : (nextLonelyExtra.length ? ' (외롭지 않아: 인접 1칸 추가 수색 가능)' : '')}`);
         this.setActionPopup(`🔍 #${nid}번 칸에 흔적이 없습니다.`, 'miss');
         this.recordFrame(`🔍 ${actorName} #${nid}번 칸 수색 → 흔적 없음`);
-        if (remaining.length === 0) {
+        if (!hasMore) {
           if (!isClone) cat.failedSearches++;
           this.finishCat(catId);
         }
@@ -659,7 +681,7 @@ class GameEngine {
       this.finishCat(catId);
     } else if (actionType === 'search') {
       // Used by AI: search adjacent nodes one by one, stopping immediately on first clue hit!
-      const validTargets = shuffle(targetNodes.filter(nid => adj.includes(nid)));
+      const validTargets = shuffle(targetNodes.filter(nid => allowedSearch.includes(nid)));
       if (!validTargets.length) return { error: '수색할 인접 칸을 1곳 이상 선택하세요.' };
       const activeTrails = new Set();
       this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(t => activeTrails.add(t)); });
@@ -691,7 +713,7 @@ class GameEngine {
       if (cat.searchingThisTurn) return { error: '이미 수색을 시작해 포획할 수 없습니다.' };
       
       const target = targetNodes[0];
-      if (!adj.includes(target)) return { error: '인접한 원형 칸 1곳을 선택하세요.' };
+      if (!baseAdj.includes(target)) return { error: '인접한 원형 칸 1곳을 선택하세요.' };
       const caught = this.state.mice.find(m => !m.delivered && m.pos === target);
       if (caught) {
         this.addLog(`💥 ${actorName}가 #${target}번 칸 포획 성공!! ${caught.name} 검거!`);
@@ -723,6 +745,7 @@ class GameEngine {
     cat.usedExtraMoveThisTurn = false;
     cat.searchingThisTurn = false;
     cat.searchedNodes = [];
+    cat.lonelyBonusUsedThisTurn = false;
     if (this.state.cats.every(c => c.actedThisTurn)) {
       if (this.state.turn >= 15) {
         this.addLog('⏰ 15턴 제한 시간 초과! 고양이 팀이 승리했습니다.');
@@ -841,6 +864,7 @@ class GameEngine {
       c.edgeId = resetReds[idx];
       c.searchingThisTurn = false;
       c.searchedNodes = [];
+      c.lonelyBonusUsedThisTurn = false;
       c.sprintMode = false;
       c.usedExtraMoveThisTurn = false;
     });
@@ -939,7 +963,7 @@ class GameEngine {
       if (!c) return false;
       const reach = this.getCatReachableEdges(c.id, false);
       const edge = reach[Math.floor(Math.random() * reach.length)];
-      const adj = this.getCatAdjacentNodes(edge, this.catHasLonelyBonus(c));
+      const adj = this.getCatAdjacentNodes(edge, false);
       this.catAction({ catId: c.id, edgeId: edge, actionType: 'search', targetNodes: adj });
       return true;
     }

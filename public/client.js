@@ -135,6 +135,18 @@ function catHasLonelyBonus(game, cat) {
   return !game.cats.some(o => o.id !== cat.id && o.edgeId !== null && NODES[EDGES[o.edgeId].u].q === myQ);
 }
 
+function getClientLonelyExtraNodes(game, cat) {
+  if (!cat || !catHasLonelyBonus(game, cat) || cat.lonelyBonusUsedThisTurn || !cat.searchedNodes?.length) return [];
+  const searchedSet = new Set(cat.searchedNodes);
+  const out = new Set();
+  cat.searchedNodes.forEach(s => {
+    (NODE_ADJ[s] || []).forEach(adjN => {
+      if (!searchedSet.has(adjN)) out.add(adjN);
+    });
+  });
+  return Array.from(out);
+}
+
 function getCatAdjacentNodes(edgeId, extraRange = false) {
   const e = EDGES[edgeId];
   if (!e) return [];
@@ -855,7 +867,7 @@ function renderAll() {
 
   const roleChip = document.getElementById('myRoleChip');
   roleChip.textContent = me.team === 'mouse' ? '🐭 생쥐 팀 시점' : me.team === 'cat' ? '🐱 고양이 팀 시점' : '👀 관전';
-  roleChip.className = `px-2.5 py-0.5 rounded-full text-xs font-bold ${me.team === 'mouse' ? 'bg-sky-500/20 text-sky-300' : 'bg-orange-500/20 text-orange-300'}`;
+  roleChip.className = `px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0 whitespace-nowrap ${me.team === 'mouse' ? 'bg-sky-500/20 text-sky-300' : 'bg-orange-500/20 text-orange-300'}`;
 
   // 15-Turn Track
   const track = document.getElementById('turnTrack');
@@ -974,15 +986,16 @@ function renderControls(game, me) {
       { id: 'hole', imgKey: 'mouse_card_hole', name: '쥐구멍 이동', desc: '맞은편 쥐구멍으로 이동' }
     ];
     el.innerHTML = `
+      <button ${allMoved ? '' : 'disabled'} onclick="confirmMouse()" class="w-full py-2 rounded-xl font-extrabold text-xs transition ${allMoved ? 'bg-sky-500 hover:bg-sky-400 text-stone-950 shadow-lg' : 'bg-stone-800 text-stone-500 cursor-not-allowed'}">${allMoved ? '✓ 생쥐 턴 확정 (다음 단계로)' : '두 생쥐의 이동 칸을 먼저 선택하세요'}</button>
       <div class="grid grid-cols-2 gap-2">
         ${game.mice.map(m => {
           const isMine = (me.seatIndices || []).includes(m.id);
           const isSel = (localUI.selectedMouseId === m.id);
           return `
           <button type="button" ${!isMine || m.delivered ? 'disabled' : ''} onclick="pickMouse(${m.id})" class="p-2 rounded-xl border text-left transition ${isMine ? (isSel ? 'bg-sky-500/25 border-sky-400 ring-1 ring-sky-300' : 'bg-stone-900 border-stone-600 hover:border-sky-400/70') : 'bg-stone-900/60 border-stone-800 opacity-70 cursor-not-allowed'}">
-            <div class="text-xs font-bold text-white flex items-center justify-between">
-              <span>${m.name}</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded ${isMine ? 'bg-sky-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? (isSel ? '조종 중' : '내 말') : (m.isAI ? '🤖 AI' : '팀원 말')}</span>
+            <div class="text-xs font-bold text-white flex items-center justify-between gap-1">
+              <span class="truncate">${m.name}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${isMine ? 'bg-sky-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? (isSel ? '조종 중' : '내 말') : (m.isAI ? '🤖 AI' : '팀원 말')}</span>
             </div>
             <div class="text-[11px] text-amber-300 mt-0.5">${m.delivered ? '🕳️ 배달 완료' : m.movedThisTurn ? `✓ #${m.pendingPos} 예정` : `현재 #${m.pos}`}</div>
           </button>`;
@@ -993,16 +1006,15 @@ function renderControls(game, me) {
           const avail = activeM?.cards?.[mc.id];
           const isSel = localUI.selectedMouseCard === mc.id;
           return `
-            <div class="flex flex-col gap-1">
-              <button ${avail ? '' : 'disabled'} onclick="toggleMCard('${mc.id}')" class="p-1.5 rounded-xl border text-center ${isSel ? 'bg-amber-500/25 border-amber-400' : 'bg-stone-900 border-stone-700'} ${avail ? '' : 'opacity-35'}">
-                ${ASSETS?.[mc.imgKey] ? `<img src="${ASSETS[mc.imgKey]}" class="w-full rounded-md mb-1" />` : ''}
-                <div class="text-[11px] font-bold text-white">${mc.name}${avail > 1 ? ` <span class="text-amber-300">×${avail}</span>` : (!avail ? " (0)" : "")}</div>
+            <div class="flex flex-col gap-0.5">
+              <button ${avail ? '' : 'disabled'} onclick="toggleMCard('${mc.id}')" class="p-1.5 rounded-xl border text-center ${isSel ? 'bg-amber-500/25 border-amber-400' : 'bg-stone-900 border-stone-700'} ${avail ? 'hover:border-sky-400/60' : 'opacity-35'}">
+                ${ASSETS?.[mc.imgKey] ? `<img src="${ASSETS[mc.imgKey]}" class="h-24 w-auto mx-auto rounded-md mb-1 object-contain" />` : ''}
+                <div class="text-[11px] font-bold text-white leading-tight">${mc.name}${avail > 1 ? ` <span class="text-amber-300">×${avail}</span>` : (!avail ? " (0)" : "")}</div>
               </button>
               <button onclick="zoomCard('${mc.imgKey}','생쥐 능력 카드','${escAttr(mc.name)}','${escAttr(mc.desc)}')" class="text-[10px] text-stone-400 hover:text-amber-300">설명 보기</button>
             </div>`;
         }).join('')}
       </div>
-      <button ${allMoved ? '' : 'disabled'} onclick="confirmMouse()" class="w-full py-2.5 rounded-xl font-extrabold text-xs ${allMoved ? 'bg-sky-500 hover:bg-sky-400 text-stone-950' : 'bg-stone-800 text-stone-500'}">생쥐 턴 확정</button>
     `;
   } else if (game.phase === 'CAT_TURN') {
     inst.textContent = me.team === 'cat'
@@ -1024,21 +1036,8 @@ function renderControls(game, me) {
       return;
     }
     el.innerHTML = `
-      <div class="space-y-2">
-        ${game.cats.map(c => {
-          const isMine = (me.seatIndices || []).includes(c.id);
-          return `
-          <div onclick="${(!isMine || c.actedThisTurn) ? '' : `pickCat(${c.id})`}" class="p-2.5 rounded-xl border transition ${c.actedThisTurn ? 'bg-stone-900/40 border-stone-800 opacity-45' : isMine ? 'bg-orange-500/20 border-orange-400 cursor-pointer' : 'bg-stone-900/60 border-stone-800 opacity-75'}">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-white">${c.name} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded ${isMine ? 'bg-orange-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? '내 말' : (c.isAI ? 'AI 팀원' : '팀원 말')}</span></span>
-              <span class="text-[11px] text-amber-300">${c.actedThisTurn ? '✓ 완료' : isMine ? '● 이동·행동 가능' : '조작 불가'}</span>
-            </div>
-            <div class="mt-1.5 flex flex-wrap gap-1.5">${renderCatCardBadges(c, isMine && !c.actedThisTurn)}</div>
-          </div>`;
-        }).join('')}
-      </div>
       ${localUI.catMode === 'ability' && localUI.activeAbility ? `
-        <div class="p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/60 text-xs text-amber-200 flex items-center justify-between gap-2">
+        <div class="p-2 rounded-xl bg-amber-500/15 border border-amber-400/60 text-xs text-amber-200 flex items-center justify-between gap-2">
           <span>✨ 카드 능력 대상 칸/교차로를 보드에서 클릭하세요!</span>
           <button onclick="cancelCatAbility()" class="px-2 py-1 rounded bg-stone-800 text-stone-200 font-bold text-[11px]">취소</button>
         </div>` : ''}
@@ -1047,26 +1046,37 @@ function renderControls(game, me) {
           🥷 분신 고양이 조종 중! 보라색 교차로 이동 후 수색/포획을 실행하세요.
         </div>` : ''}
       ${localUI.selectedCatId !== null && localUI.catMoveEdge !== null ? `
-        ${!localUI.controllingClone && game.cats[localUI.selectedCatId]?.sprintMode ? `
-          <button onclick="execCatSprintOnly()" class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-xs">💨 [날쌘 걸음] 3칸 이동 확정 (행동 없음)</button>
+        ${game.cats[localUI.selectedCatId]?.searchingThisTurn ? `
+          <div class="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-400/60 space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-emerald-300">🔍 단서 수색 진행 중</span>
+              <button onclick="endCatSearchEarly()" class="px-3 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-100 font-extrabold text-xs">수색 그만하기 (턴 종료)</button>
+            </div>
+            <div class="text-[11px] text-stone-300">${!localUI.controllingClone && getClientLonelyExtraNodes(game, game.cats[localUI.selectedCatId]).length ? '초록/하늘색 칸을 클릭해 계속 탐색(외롭지 않아 추가 1칸 가능)하거나 종료하세요.' : '초록색 칸을 클릭해 계속 탐색하거나 수색을 마칠 수 있습니다.'}</div>
+          </div>
         ` : `
-          ${game.cats[localUI.selectedCatId]?.searchingThisTurn ? `
-            <div class="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-400/60 space-y-2">
-              <div class="text-xs font-bold text-emerald-300">🔍 한 칸씩 단서 수색 진행 중 (발자국 발견 시 즉시 종료)</div>
-              <div class="text-[11px] text-stone-300">초록색 칸을 클릭해 계속 탐색하거나 수색을 마칠 수 있습니다.</div>
-              <button onclick="endCatSearchEarly()" class="w-full py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs">수색 그만하기 (턴 종료)</button>
-            </div>
-          ` : `
-            ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? `
-              <div class="px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/50 text-[11px] font-bold text-amber-200">
-                💨 [날쌘 걸음] 3칸 추가 이동 선택 — 이번 턴은 단서 수색만 가능 (포획 불가)
-              </div>` : ''}
-            <div class="grid grid-cols-2 gap-2 pt-1">
-              <button onclick="setCatSearchMode()" class="py-2 rounded-lg ${localUI.catMode === 'search' ? 'bg-emerald-500 text-stone-950' : 'bg-stone-800 hover:bg-stone-700 text-emerald-300 border border-emerald-500/40'} font-extrabold text-xs">🔍 ${localUI.controllingClone ? '분신 ' : ''}단서 수색 (한 칸씩)</button>
-              <button onclick="setCatCaptureMode()" ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? 'disabled title="날쌘 걸음 3칸 추가 이동 시 포획 불가"' : ''} class="py-2 rounded-lg ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? 'bg-stone-900 text-stone-500 border border-stone-700 cursor-not-allowed opacity-50' : (localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40')} font-extrabold text-xs">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
-            </div>
-          `}
+          ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? `
+            <div class="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/50 text-[11px] font-bold text-amber-200">
+              💨 [날쌘 걸음] 3칸 추가 이동 선택 — 단서 수색만 가능 (포획 불가)
+            </div>` : ''}
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="setCatSearchMode()" class="py-2 rounded-lg ${localUI.catMode === 'search' ? 'bg-emerald-500 text-stone-950' : 'bg-stone-800 hover:bg-stone-700 text-emerald-300 border border-emerald-500/40'} font-extrabold text-xs">🔍 ${localUI.controllingClone ? '분신 ' : ''}단서 수색 (한 칸씩)</button>
+            <button onclick="setCatCaptureMode()" ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? 'disabled title="날쌘 걸음 3칸 추가 이동 시 포획 불가"' : ''} class="py-2 rounded-lg ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? 'bg-stone-900 text-stone-500 border border-stone-700 cursor-not-allowed opacity-50' : (localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40')} font-extrabold text-xs">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
+          </div>
         `}` : `<div class="text-[11px] text-stone-400">행동할 고양이를 선택하면 이동 범위 가이드라인과 카드 [발동] 버튼이 활성화됩니다.</div>`}
+      <div class="space-y-1.5">
+        ${game.cats.map(c => {
+          const isMine = (me.seatIndices || []).includes(c.id);
+          return `
+          <div onclick="${(!isMine || c.actedThisTurn) ? '' : `pickCat(${c.id})`}" class="p-2 rounded-xl border transition ${c.actedThisTurn ? 'bg-stone-900/40 border-stone-800 opacity-45' : isMine ? (localUI.selectedCatId === c.id ? 'bg-orange-500/25 border-orange-400 ring-1 ring-orange-300 cursor-pointer' : 'bg-orange-500/15 border-orange-500/60 cursor-pointer') : 'bg-stone-900/60 border-stone-800 opacity-75'}">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white">${c.name} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap ${isMine ? 'bg-orange-500 text-stone-950 font-extrabold' : 'bg-stone-800 text-stone-400'}">${isMine ? '내 말' : (c.isAI ? 'AI 팀원' : '팀원 말')}</span></span>
+              <span class="text-[11px] text-amber-300">${c.actedThisTurn ? '✓ 완료' : isMine ? '● 이동·행동 가능' : '조작 불가'}</span>
+            </div>
+            <div class="mt-1 flex flex-wrap gap-1">${renderCatCardBadges(c, isMine && !c.actedThisTurn)}</div>
+          </div>`;
+        }).join('')}
+      </div>
     `;
   } else if (game.phase === 'DRAFT') {
     const picked = new Set(game.draftPickedCats || []);
@@ -1347,14 +1357,17 @@ function renderBoard() {
         });
       }
       if (localUI.catMoveEdge !== null && (localUI.catMode === 'search' || localUI.catMode === 'capture')) {
-        const adjNodes = getCatAdjacentNodes(localUI.catMoveEdge, !isClone && catHasLonelyBonus(game, cat));
+        const baseAdj = getCatAdjacentNodes(localUI.catMoveEdge, false);
+        const lonelyExtra = (!isClone && !isCap) ? getClientLonelyExtraNodes(game, cat) : [];
+        const adjNodes = Array.from(new Set([...baseAdj, ...lonelyExtra]));
         const searched = new Set(cat?.searchedNodes || []);
         const isCap = (localUI.catMode === 'capture');
         adjNodes.forEach(nid => {
           if (!isCap && searched.has(nid)) {
             drawRing(NODES[nid].x, NODES[nid].y, 22, '#78716c', 'rgba(120,113,108,0.35)', 3);
           } else {
-            drawRing(NODES[nid].x, NODES[nid].y, 24, isCap ? '#ef4444' : '#4ade80', isCap ? 'rgba(239,68,68,0.32)' : 'rgba(74,222,128,0.32)', 4);
+            const isLonelyBonusNode = !isCap && !baseAdj.includes(nid);
+            drawRing(NODES[nid].x, NODES[nid].y, 24, isCap ? '#ef4444' : (isLonelyBonusNode ? '#38bdf8' : '#4ade80'), isCap ? 'rgba(239,68,68,0.32)' : (isLonelyBonusNode ? 'rgba(56,189,248,0.32)' : 'rgba(74,222,128,0.32)'), 4);
           }
         });
       }
