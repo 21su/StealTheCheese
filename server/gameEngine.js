@@ -610,7 +610,7 @@ class GameEngine {
 
       const activeTrails = new Set();
       this.state.mice.forEach(m => { if (!m.delivered) m.trail.forEach(t => activeTrails.add(t)); });
-      this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, turn: this.state.turn });
+      this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, round: this.state.round, turn: this.state.turn });
       if (activeTrails.has(nid)) {
         if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
           this.state.cluesCurrent.push(nid);
@@ -646,7 +646,7 @@ class GameEngine {
       const checked = [];
       for (const nid of validTargets) {
         checked.push(nid);
-        this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, turn: this.state.turn });
+        this.state.catCheckedNodes.push({ nodeId: nid, hit: activeTrails.has(nid), by: actorName, round: this.state.round, turn: this.state.turn });
         if (activeTrails.has(nid)) {
           hitNode = nid;
           if (!this.state.cluesCurrent.includes(nid) && this.state.cluesCurrent.length + this.state.cluesPast.length < 25) {
@@ -809,7 +809,7 @@ class GameEngine {
     this.state.turn = 1;
     this.state.cluesPast = Array.from(new Set([...this.state.cluesPast, ...this.state.cluesCurrent]));
     this.state.cluesCurrent = [];
-    this.state.catCheckedNodes = [];
+    // Keep catCheckedNodes across all rounds so full-game detection history is preserved
     this.state.specialTrackMarks = {};
     this.state.usedHolesThisRound = [];
     this.state.bellNode = null;
