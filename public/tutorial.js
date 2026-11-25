@@ -1,8 +1,8 @@
 /**
- * 치즈를 훔쳐라! — 튜토리얼 모듈 (v18)
- * 1) 📖 안내문 튜토리얼 (6단계, 퀴즈 제거)
- * 2) 🐭 생쥐 실전 체험 (직접 클릭해 이동 · 치즈 획득 · 질주 카드 · 쥐구멍 배달)
- * 3) 🐱 고양이 실전 체험 (직접 클릭해 교차로 이동 · 순차 단서 수색 · 포획 승리)
+ * 치즈를 훔쳐라! — 튜토리얼 모듈 (v19)
+ * 1) 📖 안내문 튜토리얼 (6단계, 고정 높이 모달로 다음/이전 버튼 위치 유지)
+ * 2) 🐭 생쥐 실전 체험 (매 턴 고양이가 실제로 순찰·차단·추격 이동)
+ * 3) 🐱 고양이 실전 체험 (인접 #14·#24 정확한 순차 수색 + 생쥐 이동 경로 추리 노트)
  */
 (function () {
   const STORAGE_KEY = 'stc_tutorial_hide_auto_v1';
@@ -15,40 +15,57 @@
     { id: 'board', label: '2. 보드 구조', subtitle: 'A·B·C·D 4구역과 이중 경로를 한눈에' },
     { id: 'turn', label: '3. 턴 진행', subtitle: '4단계 턴 흐름과 치즈 획득 시 턴 -3' },
     { id: 'mouse', label: '4. 생쥐 플레이', subtitle: '은신 이동과 특수 이동 카드 4장' },
-    { id: 'cat', label: '5. 고양이 플레이', subtitle: '순차 수색, 포획, 그리고 증강 드래프트' },
+    { id: 'cat', label: '5. 고양이 플레이', subtitle: '순차 수색, 경로 추리, 그리고 증강 드래프트' },
     { id: 'ui', label: '6. 화면 UI 안내', subtitle: '사이드 패널 · 전체 탐지 목록 · 1인 연습 · 다시보기' },
   ];
 
-  // === Interactive Playable Mouse Tutorial State ===
+  // === Interactive Playable Mouse Tutorial State (Cat moves every turn!) ===
+  // Cat patrol positions across turns:
+  // Turn 5 (start): e_22_23 (bottom-left patrol)
+  // Turn 6 (after #34->#24): e_13_23 (approaching center)
+  // Turn 3 (after #24->#14 cheese stolen & turn -3): e_14_13 (rushes to block #14<->#13!)
+  // Turn 4 (after Sprint #14->#12): e_12_13 (chases right behind mouse!)
+  const M_CAT_POS = {
+    e_22_23: { x: 195, y: 146, label: '고양이 순찰 중' },
+    e_13_23: { x: 242, y: 101, label: '고양이 접근!' },
+    e_14_13: { x: 289, y: 56, label: '고양이 길목 차단!' },
+    e_12_13: { x: 195, y: 56, label: '고양이 추격 중!' },
+  };
+
   function createMousePlayState() {
     return {
-      stage: 0, // 0: move to #24, 1: steal cheese at #14, 2: activate sprint & jump over cat to #12, 3: deliver to burrow #2, 4: complete
+      stage: 0, // 0: move #34->#24, 1: steal cheese #24->#14, 2: sprint #14->#12, 3: deliver #12->#2, 4: complete
       turn: 5,
       mouseNode: 34,
       trail: [34],
-      catEdge: 'e_14_13', // Cat standing on intersection between #14 and #13
+      catEdge: 'e_22_23',
+      prevCatEdge: null,
       hasCheese: false,
       cheeseNode: 14,
       sprintSelected: false,
       sprintLeft: 2,
-      banner: '',
+      banner: '🐱 현재 고양이는 아래쪽(#22↔#23)을 순찰 중입니다. 턴이 지날 때마다 고양이도 이동합니다!',
       log: '미션 1: 반짝이는 파란 칸(#24)을 클릭해 치즈 방향으로 1칸 이동해 보세요.',
     };
   }
   let mousePlay = createMousePlayState();
 
-  // === Interactive Playable Cat Tutorial State ===
+  // === Interactive Playable Cat Tutorial State (Exact #14/#24 adjacency + Path Deduction!) ===
+  // Mouse stole cheese at #14 (approached from #15) and fled to #13.
+  // Intersection e_24_14 is strictly between #14 and #24 -> ONLY #14 and #24 are adjacent!
   function createCatPlayState() {
     return {
-      stage: 0, // 0: move cat 2 steps to e_24_14, 1: search #25 (miss) then #24 (footprint!), 2: move to e_14_13 & select capture, 3: capture #13, 4: complete
-      catEdge: 'e_35_25',
+      stage: 0, // 0: move to e_24_14, 1: search #24(miss) / #14(hit!), 2: deduce & move to e_14_13, 3: capture #13, 4: complete
+      turn: 4,
+      catEdge: 'e_34_24',
       catActionMode: 'move', // 'move' | 'search' | 'capture'
       checked: [], // [{ nodeId, hit }]
       clues: [],
       mouseHiddenNode: 13,
-      mouseTrail: [34, 24, 14, 13],
-      banner: '📢 A 구역 치즈가 도둑맞았습니다! 도주로를 차단하세요.',
-      log: '미션 1: 주황색으로 빛나는 교차로(②번)를 클릭해 A 구역 길목으로 2칸 이동해 보세요.',
+      mouseTrail: [15, 14, 13], // Did NOT pass #24, passed #14 -> fled toward burrow (#13)
+      banner: '📢 A 구역 치즈가 도둑맞았습니다! 발자국을 찾아 생쥐의 도주 경로를 추측하세요.',
+      deduction: '아직 발자국 단서가 없습니다. 먼저 A 구역 길목(②번 교차로)으로 이동해 인접 칸(#14, #24)을 수색해 보세요.',
+      log: '미션 1: 주황색으로 빛나는 교차로(② #14↔#24)를 클릭해 A 구역 길목으로 이동해 보세요.',
     };
   }
   let catPlay = createCatPlayState();
@@ -58,7 +75,7 @@
     return '';
   }
 
-  // ==================== TAB 1: GUIDE TUTORIAL (6 STEPS, NO QUIZ) ====================
+  // ==================== TAB 1: GUIDE TUTORIAL (6 STEPS) ====================
   function renderStep0Goal() {
     return `
       <div class="tut-fade space-y-5">
@@ -285,17 +302,17 @@
       <div class="tut-fade space-y-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-400/40 space-y-1.5">
-            <div class="text-sm font-extrabold text-emerald-300">🔎 ① 단서 수색 (한 칸씩 순차 지목)</div>
+            <div class="text-sm font-extrabold text-emerald-300">🔎 ① 단서 수색 & 경로 추리</div>
             <p class="text-xs sm:text-sm text-stone-200 leading-relaxed">
-              내 교차로와 인접한 원형 칸을 <b>한 칸씩 차례로 클릭</b>해 확인합니다.
-              이번 라운드 생쥐가 지나간 흔적(발자국)이 나오면 <b>그 즉시 수색과 턴이 종료</b>됩니다.
+              내 교차로와 <b>인접한 원형 칸</b>을 한 칸씩 클릭해 확인합니다.
+              발자국이 나온 칸과 없는 칸을 비교해 <b>생쥐의 이동 경로를 추측</b>하세요. (발견 시 즉시 수색·턴 종료)
             </p>
           </div>
           <div class="p-4 rounded-2xl bg-rose-950/30 border border-rose-400/40 space-y-1.5">
             <div class="text-sm font-extrabold text-rose-300">🐾 ② 포획 시도 (인접 1칸 지목)</div>
             <p class="text-xs sm:text-sm text-stone-200 leading-relaxed">
-              생쥐가 지금 서 있다고 확신하는 인접 칸 1곳을 지목합니다.
-              적중하면 <b>그 즉시 고양이 팀 승리!</b> 빗나가면 해당 고양이의 턴이 종료됩니다.
+              발자국 흐름과 턴 수를 바탕으로 생쥐가 지금 숨어 있는 인접 칸 1곳을 지목합니다.
+              적중하면 <b>그 즉시 고양이 팀 승리!</b>
             </p>
           </div>
         </div>
@@ -365,7 +382,6 @@
   ];
 
   // ==================== TAB 2: PLAYABLE MOUSE TUTORIAL ====================
-  // Mini-board coordinates (subset of A-zone: burrow #2, nodes #12, #13, #14, #24, #34)
   const M_NODES = {
     2: { x: 66, y: 56, label: '2번 쥐구멍', isHole: true },
     12: { x: 148, y: 56, label: '#12' },
@@ -384,19 +400,17 @@
   function renderMousePlayable() {
     const s = mousePlay;
     const stepLabels = ['① 은신 이동', '② 치즈 획득(턴-3)', '③ 질주 돌파', '④ 쥐구멍 배달'];
-    // Determine clickable target node(s) for current mission
     const targets = new Set();
     if (s.stage === 0) targets.add(24);
     else if (s.stage === 1) targets.add(14);
     else if (s.stage === 2 && s.sprintSelected) targets.add(12);
     else if (s.stage === 3) targets.add(2);
 
-    const catX = 289;
-    const catY = 56; // Cat standing right on intersection between #14 and #13!
+    const catPos = M_CAT_POS[s.catEdge];
+    const prevPos = s.prevCatEdge ? M_CAT_POS[s.prevCatEdge] : null;
 
     return `
-      <div class="tut-fade space-y-3.5">
-        <!-- Mission Progress Strip -->
+      <div class="tut-fade space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex flex-wrap gap-1.5">
             ${stepLabels
@@ -417,22 +431,19 @@
           </div>
         </div>
 
-        <!-- Live Instruction Banner -->
         <div class="p-3 rounded-xl ${s.stage === 4 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-100' : 'bg-sky-950/45 border-sky-400/50 text-sky-100'} border text-xs sm:text-sm font-bold leading-relaxed">
           ${s.log}
         </div>
         ${
           s.banner
-            ? `<div class="px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-400/60 text-xs font-extrabold text-amber-200 text-center">${s.banner}</div>`
+            ? `<div class="px-3 py-2 rounded-xl bg-amber-500/18 border border-amber-400/55 text-xs font-extrabold text-amber-200 text-center">${s.banner}</div>`
             : ''
         }
 
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-start">
-          <!-- Interactive Mini-Board SVG -->
           <div class="md:col-span-8 p-3 rounded-2xl bg-[#221b16] border border-stone-700">
             <svg viewBox="0 0 400 265" class="w-full h-auto rounded-xl bg-[#2c231c] select-none">
-              <text x="16" y="24" fill="#fcd34d" font-size="11" font-weight="800">A 구역 실전 연습 보드</text>
-              <!-- Roads -->
+              <text x="16" y="24" fill="#fcd34d" font-size="11" font-weight="800">A 구역 실전 연습 보드 (매 턴 고양이 이동)</text>
               ${M_LINKS.map(([a, b]) => {
                 const na = M_NODES[a];
                 const nb = M_NODES[b];
@@ -440,12 +451,20 @@
                 return `<line x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}" stroke="${inTrail ? '#38bdf8' : '#6b5b4d'}" stroke-width="${inTrail ? 4 : 2.5}" stroke-dasharray="${inTrail ? '' : '4 3'}"/>`;
               }).join('')}
 
-              <!-- Cat blocking intersection between #14 and #13 -->
+              <!-- Cat movement arrow from previous turn so turn progression is unmistakable -->
+              ${
+                prevPos
+                  ? `<line x1="${prevPos.x}" y1="${prevPos.y}" x2="${catPos.x}" y2="${catPos.y}" stroke="#fb923c" stroke-width="2.5" stroke-dasharray="4 3" opacity="0.85"/>
+                     <circle cx="${prevPos.x}" cy="${prevPos.y}" r="5" fill="#fb923c" opacity="0.45"/>`
+                  : ''
+              }
+
+              <!-- Moving Cat -->
               <g>
-                <circle cx="${catX}" cy="${catY}" r="16" fill="#ea580c" fill-opacity="0.28" stroke="#fb923c" stroke-width="2"/>
-                <circle cx="${catX}" cy="${catY}" r="11" fill="#c2410c" stroke="#fed7aa" stroke-width="2"/>
-                <text x="${catX}" y="${catY + 4}" text-anchor="middle" font-size="12">🐱</text>
-                <text x="${catX}" y="${catY + 28}" text-anchor="middle" fill="#fdba74" font-size="9" font-weight="800">고양이 길목 차단</text>
+                <circle cx="${catPos.x}" cy="${catPos.y}" r="17" fill="#ea580c" fill-opacity="0.28" stroke="#fb923c" stroke-width="2"/>
+                <circle cx="${catPos.x}" cy="${catPos.y}" r="11" fill="#c2410c" stroke="#fed7aa" stroke-width="2"/>
+                <text x="${catPos.x}" y="${catPos.y + 4}" text-anchor="middle" font-size="12">🐱</text>
+                <text x="${catPos.x}" y="${catPos.y + 28}" text-anchor="middle" fill="#fdba74" font-size="9" font-weight="800">${catPos.label}</text>
               </g>
 
               <!-- Nodes -->
@@ -465,14 +484,12 @@
                         ${isMouse ? '🐭' : isCheese ? '🧀' : n.isHole ? '🕳️' : `#${id}`}
                       </text>
                       <text x="${n.x}" y="${n.y + 30}" text-anchor="middle" fill="${isTarget ? '#7dd3fc' : '#a8a29e'}" font-size="9" font-weight="700">${n.label}</text>
-                    </g>
-                  `;
+                    </g>`;
                 })
                 .join('')}
             </svg>
           </div>
 
-          <!-- Right Action Panel for Mouse Playable -->
           <div class="md:col-span-4 space-y-2.5">
             <div class="p-3 rounded-2xl bg-stone-900/90 border border-stone-700 space-y-2">
               <div class="text-xs font-extrabold text-sky-300">🃏 생쥐 특수 이동 카드</div>
@@ -490,14 +507,14 @@
                 <div class="text-[10px] opacity-85 mt-0.5">2칸 연속 이동 · 고양이 교차로 통과</div>
               </button>
               <div class="text-[11px] text-stone-400 leading-relaxed">
-                • 일반 이동으로는 고양이가 서 있는 교차로를 넘을 수 없습니다.<br/>
-                • <b>질주</b>를 쓰면 고양이 교차로를 넘어 2칸 이동할 수 있습니다.
+                • 매 턴 생쥐가 이동하면 고양이도 교차로를 따라 이동합니다.<br/>
+                • 길목이 막히면 <b>질주</b> 카드로 고양이 교차로를 넘어 돌파할 수 있습니다.
               </div>
             </div>
             ${
               s.stage === 4
                 ? `<div class="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-400/50 text-xs text-emerald-200 leading-relaxed">
-                    🎉 <b>생쥐 체험 완료!</b><br/>이제 상단 <b>🐱 고양이 실전 체험</b> 탭에서 추적과 포획도 연습해 보세요!
+                    🎉 <b>생쥐 체험 완료!</b><br/>이제 상단 <b>🐱 고양이 실전 체험</b> 탭에서 이동 경로 추리와 포획도 연습해 보세요!
                    </div>`
                 : ''
             }
@@ -513,17 +530,22 @@
       s.mouseNode = 24;
       s.trail.push(24);
       s.turn = 6;
+      s.prevCatEdge = s.catEdge;
+      s.catEdge = 'e_13_23'; // Cat patrols upward!
       s.stage = 1;
-      s.log = '좋아요! 미션 2: 이제 치즈가 놓인 #14번 칸을 클릭해 치즈를 훔쳐 보세요.';
+      s.banner = '🐱 고양이 턴 경과: 고양이가 #13↔#23 교차로로 한 칸 올라왔습니다!';
+      s.log = '미션 2: 고양이가 다가오고 있습니다! 치즈가 놓인 [#14번 칸]을 클릭해 치즈를 훔쳐 보세요.';
       renderTutorial();
     } else if (s.stage === 1 && nodeId === 14) {
       s.mouseNode = 14;
       s.trail.push(14);
       s.hasCheese = true;
       s.turn = Math.max(1, s.turn - 3); // 6 -> 3
+      s.prevCatEdge = s.catEdge;
+      s.catEdge = 'e_14_13'; // Cat reacts to A-zone stolen alert and blocks #14<->#13!
       s.stage = 2;
-      s.banner = '📢 "A 구역 치즈가 도둑맞았습니다!" — 구역만 공개 + 턴 마커 3칸 되돌림 (6턴 → 3턴)';
-      s.log = '미션 3: 고양이가 #14↔#13 길목을 막았습니다! 오른쪽 [⚡ 질주] 카드를 클릭한 뒤 #12번 칸으로 돌파해 보세요.';
+      s.banner = '📢 "A 구역 도난!" (6턴→3턴) · 🐱 고양이가 알림을 듣고 #14↔#13 길목을 막았습니다!';
+      s.log = '미션 3: 고양이가 앞길을 막았습니다! 오른쪽 [⚡ 질주] 카드를 누른 뒤 [#12번 칸]으로 돌파해 보세요.';
       renderTutorial();
     } else if (s.stage === 2 && s.sprintSelected && nodeId === 12) {
       s.mouseNode = 12;
@@ -531,39 +553,42 @@
       s.sprintSelected = false;
       s.sprintLeft = 1;
       s.turn += 1;
+      s.prevCatEdge = s.catEdge;
+      s.catEdge = 'e_12_13'; // Cat chases right behind!
       s.stage = 3;
-      s.banner = '🃏 "생쥐 A가 특수 카드를 사용했습니다!" (카드 종류는 고양이에게 비공개)';
-      s.log = '완벽한 돌파! 미션 4: 마지막으로 왼쪽 구석 [2번 쥐구멍]을 클릭해 치즈를 배달해 보세요.';
+      s.banner = '🃏 카드 사용 알림(종류 비공개) · 🐱 고양이가 #12↔#13까지 바짝 추격해 왔습니다!';
+      s.log = '아슬아슬합니다! 미션 4: 마지막으로 왼쪽 구석 [2번 쥐구멍]을 클릭해 치즈를 배달해 보세요.';
       renderTutorial();
     } else if (s.stage === 3 && nodeId === 2) {
       s.mouseNode = 2;
       s.trail.push(2);
       s.stage = 4;
       s.banner = '🏆 치즈 배달 완료! (배달한 생쥐는 다음 라운드까지 포획 면역)';
-      s.log = '축하합니다! 생쥐의 핵심 플레이(은신 이동 → 치즈 획득·턴-3 → 질주 돌파 → 쥐구멍 배달)를 모두 체험했습니다!';
+      s.log = '축하합니다! 매 턴 추격해 오는 고양이를 피해 치즈를 배달하는 생쥐 플레이를 모두 체험했습니다!';
       renderTutorial();
     }
   }
 
   // ==================== TAB 3: PLAYABLE CAT TUTORIAL ====================
+  // Exact geometry: e_24_14 lies strictly on the road between #14 and #24 -> ONLY #14 and #24 are adjacent!
+  // e_14_13 lies strictly on the road between #14 and #13 -> #13 and #14 are adjacent!
   const C_NODES = {
-    12: { x: 86, y: 66, label: '#12' },
-    13: { x: 196, y: 66, label: '#13' },
-    14: { x: 306, y: 66, label: '#14' },
-    23: { x: 196, y: 176, label: '#23' },
-    24: { x: 306, y: 176, label: '#24' },
-    25: { x: 368, y: 176, label: '#25' },
+    2: { x: 56, y: 66, label: '2번 쥐구멍', isHole: true },
+    13: { x: 162, y: 66, label: '#13' },
+    14: { x: 274, y: 66, label: '#14' },
+    15: { x: 368, y: 66, label: '#15' },
+    23: { x: 162, y: 180, label: '#23' },
+    24: { x: 274, y: 180, label: '#24' },
   };
   const C_EDGES = {
-    e_35_25: { x: 348, y: 226, label: '출발 교차로' },
-    e_24_14: { x: 306, y: 121, label: '② A구역 길목', adj: [14, 24, 25] },
-    e_14_13: { x: 251, y: 66, label: '③ 추격 교차로', adj: [13, 14] },
+    e_34_24: { x: 274, y: 230, label: '출발 교차로' },
+    e_24_14: { x: 274, y: 123, label: '② #14↔#24 교차로', adj: [14, 24] },
+    e_14_13: { x: 218, y: 66, label: '③ #13↔#14 교차로', adj: [13, 14] },
   };
 
   function renderCatPlayable() {
     const s = catPlay;
-    const stepLabels = ['① 교차로 이동', '② 순차 단서 수색', '③ 추격 이동', '④ 포획 승리'];
-    const curEdgeObj = C_EDGES[s.catEdge];
+    const stepLabels = ['① 교차로 이동', '② 인접(#14·#24) 수색', '③ 경로 추리·추격', '④ 포획 승리'];
 
     const moveTargets = new Set();
     const searchTargets = new Set();
@@ -571,17 +596,19 @@
 
     if (s.stage === 0) moveTargets.add('e_24_14');
     else if (s.stage === 1) {
-      // Guide user: #25 (miss) or #24 (hit -> ends search immediately!)
-      if (!s.checked.some((c) => c.nodeId === 25)) searchTargets.add(25);
+      // Strictly adjacent nodes to e_24_14 are #14 and #24!
       if (!s.checked.some((c) => c.nodeId === 24)) searchTargets.add(24);
+      if (!s.checked.some((c) => c.nodeId === 14)) searchTargets.add(14);
     } else if (s.stage === 2) {
       moveTargets.add('e_14_13');
     } else if (s.stage === 3 && s.catActionMode === 'capture') {
       captureTargets.add(13);
     }
 
+    const showPredictedPath = s.stage >= 2 && s.stage < 4;
+
     return `
-      <div class="tut-fade space-y-3.5">
+      <div class="tut-fade space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex flex-wrap gap-1.5">
             ${stepLabels
@@ -596,7 +623,7 @@
               })
               .join('')}
           </div>
-          <span class="px-2.5 py-1 rounded-lg bg-stone-900 border border-emerald-400/50 text-xs font-bold text-emerald-300">탐지 기록: ${s.checked.length}곳</span>
+          <span class="px-2.5 py-1 rounded-lg bg-stone-900 border border-emerald-400/50 text-xs font-bold text-emerald-300">현재 턴: ${s.turn} / 15</span>
         </div>
 
         <div class="p-3 rounded-xl ${s.stage === 4 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-100' : 'bg-orange-950/45 border-orange-400/50 text-orange-100'} border text-xs sm:text-sm font-bold leading-relaxed">
@@ -604,21 +631,27 @@
         </div>
         ${
           s.banner
-            ? `<div class="px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-400/60 text-xs font-extrabold text-amber-200 text-center">${s.banner}</div>`
+            ? `<div class="px-3 py-2 rounded-xl bg-amber-500/18 border border-amber-400/55 text-xs font-extrabold text-amber-200 text-center">${s.banner}</div>`
             : ''
         }
 
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-start">
           <div class="md:col-span-8 p-3 rounded-2xl bg-[#221b16] border border-stone-700">
             <svg viewBox="0 0 410 260" class="w-full h-auto rounded-xl bg-[#2c231c] select-none">
-              <text x="16" y="24" fill="#fdba74" font-size="11" font-weight="800">고양이 추적 연습 보드 (생쥐 위치 비공개)</text>
-              <!-- Grid lines -->
-              <line x1="86" y1="66" x2="306" y2="66" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
-              <line x1="196" y1="66" x2="196" y2="176" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
-              <line x1="306" y1="66" x2="306" y2="176" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
-              <line x1="196" y1="176" x2="368" y2="176" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
-              <line x1="348" y1="226" x2="306" y2="121" stroke="#fb923c" stroke-width="2" stroke-dasharray="3 3" opacity="0.6"/>
-              <line x1="306" y1="121" x2="251" y2="66" stroke="#fb923c" stroke-width="2" stroke-dasharray="3 3" opacity="0.6"/>
+              <text x="16" y="24" fill="#fdba74" font-size="11" font-weight="800">고양이 경로 추리 연습 보드 (생쥐 위치 비공개)</text>
+              <!-- Roads -->
+              <line x1="56" y1="66" x2="368" y2="66" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
+              <line x1="162" y1="66" x2="162" y2="180" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
+              <line x1="274" y1="66" x2="274" y2="230" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
+              <line x1="162" y1="180" x2="274" y2="180" stroke="#6b5b4d" stroke-width="2.5" stroke-dasharray="4 3"/>
+
+              <!-- Predicted Mouse Escape Route after finding footprint at #14 -->
+              ${
+                showPredictedPath
+                  ? `<line x1="258" y1="66" x2="182" y2="66" stroke="#38bdf8" stroke-width="3.5" stroke-dasharray="5 3" class="tut-svg-pulse"/>
+                     <text x="218" y="42" text-anchor="middle" fill="#7dd3fc" font-size="10" font-weight="800">예상 도주 방향 ◀ (#13?)</text>`
+                  : ''
+              }
 
               <!-- Circle Nodes -->
               ${Object.entries(C_NODES)
@@ -628,7 +661,9 @@
                   const isCapture = captureTargets.has(id);
                   const chk = s.checked.find((c) => c.nodeId === id);
                   const revealedMouse = s.stage === 4 && id === s.mouseHiddenNode;
-                  const fill = revealedMouse
+                  const fill = n.isHole
+                    ? '#0c4a6e'
+                    : revealedMouse
                     ? '#dc2626'
                     : chk?.hit
                     ? '#065f46'
@@ -641,6 +676,8 @@
                     ? '#34d399'
                     : chk?.hit
                     ? '#34d399'
+                    : n.isHole
+                    ? '#7dd3fc'
                     : '#8a7968';
                   const clickable = isSearch || isCapture;
                   return `
@@ -651,14 +688,13 @@
                           : ''
                       }
                       <circle cx="${n.x}" cy="${n.y}" r="16" fill="${fill}" stroke="${stroke}" stroke-width="${clickable || chk ? 3 : 2}"/>
-                      <text x="${n.x}" y="${n.y + 4}" text-anchor="middle" fill="#fff" font-size="${revealedMouse || chk?.hit ? '13' : '10'}" font-weight="800">
-                        ${revealedMouse ? '🐭' : chk?.hit ? '🐾' : chk ? '✕' : `#${id}`}
+                      <text x="${n.x}" y="${n.y + 4}" text-anchor="middle" fill="#fff" font-size="${revealedMouse || chk?.hit || n.isHole ? '13' : '10'}" font-weight="800">
+                        ${n.isHole ? '🕳️' : revealedMouse ? '🐭' : chk?.hit ? '🐾' : chk ? '✕' : `#${id}`}
                       </text>
                       <text x="${n.x}" y="${n.y + 30}" text-anchor="middle" fill="${isCapture ? '#fca5a5' : isSearch ? '#6ee7b7' : '#a8a29e'}" font-size="9" font-weight="700">
                         ${revealedMouse ? '포획 성공!' : chk?.hit ? `#${id} 발자국` : chk ? `#${id} 없음` : n.label}
                       </text>
-                    </g>
-                  `;
+                    </g>`;
                 })
                 .join('')}
 
@@ -672,16 +708,20 @@
                       ${isMove ? `<circle cx="${e.x}" cy="${e.y}" r="20" fill="#fb923c" fill-opacity="0.3" stroke="#fb923c" stroke-width="2.5" class="tut-svg-pulse"/>` : ''}
                       <circle cx="${e.x}" cy="${e.y}" r="${isHere ? 14 : 9}" fill="${isHere ? '#ea580c' : isMove ? '#f97316' : '#57534e'}" stroke="#fff" stroke-width="2"/>
                       ${isHere ? `<text x="${e.x}" y="${e.y + 4}" text-anchor="middle" font-size="13">🐱</text>` : ''}
-                      <text x="${e.x}" y="${e.y - 18}" text-anchor="middle" fill="${isMove ? '#fdba74' : '#d6d3d1'}" font-size="9" font-weight="800">${e.label}</text>
-                    </g>
-                  `;
+                      <text x="${e.x + (eid === 'e_24_14' ? 56 : 0)}" y="${e.y + (eid === 'e_24_14' ? 4 : -18)}" text-anchor="middle" fill="${isMove ? '#fdba74' : '#d6d3d1'}" font-size="9" font-weight="800">${e.label}</text>
+                    </g>`;
                 })
                 .join('')}
             </svg>
           </div>
 
-          <!-- Right Action Panel for Cat Playable -->
           <div class="md:col-span-4 space-y-2.5">
+            <!-- Live Deduction Notebook -->
+            <div class="p-3 rounded-2xl bg-sky-950/35 border border-sky-400/40 space-y-1.5">
+              <div class="text-xs font-extrabold text-sky-300">🧠 경로 추리 노트</div>
+              <p class="text-[11px] sm:text-xs text-stone-200 leading-relaxed">${s.deduction}</p>
+            </div>
+
             <div class="p-3 rounded-2xl bg-stone-900/90 border border-stone-700 space-y-2">
               <div class="text-xs font-extrabold text-orange-300">🐱 고양이 행동 선택</div>
               <button type="button" id="btnTutCatCapture" ${s.stage !== 3 ? 'disabled' : ''} class="w-full p-2.5 rounded-xl border text-left transition ${
@@ -694,7 +734,7 @@
                 <div class="text-xs">🐾 포획 시도 모드</div>
                 <div class="text-[10px] opacity-85 mt-0.5">인접한 1칸 지목 · 적중 시 즉시 승리</div>
               </button>
-              <div class="p-2.5 rounded-xl bg-stone-950/70 border border-stone-800 space-y-1">
+              <div class="p-2 rounded-xl bg-stone-950/70 border border-stone-800 space-y-1">
                 <div class="text-[11px] font-bold text-emerald-300">🔎 탐지 기록</div>
                 <div class="flex flex-wrap gap-1 text-[11px]">
                   ${
@@ -714,13 +754,6 @@
                 </div>
               </div>
             </div>
-            ${
-              s.stage === 4
-                ? `<div class="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-400/50 text-xs text-emerald-200 leading-relaxed">
-                    🎉 <b>고양이 체험 완료!</b><br/>이제 방을 만들거나 입장해 실제 게임을 즐겨보세요!
-                   </div>`
-                : ''
-            }
           </div>
         </div>
       </div>
@@ -733,20 +766,23 @@
       s.catEdge = eid;
       s.stage = 1;
       s.catActionMode = 'search';
-      s.log = '미션 2: 초록색 인접 칸(#25 또는 #24)을 한 칸씩 클릭해 단서를 수색해 보세요! 발자국이 나오면 즉시 수색이 끝납니다.';
+      s.deduction = '현재 교차로의 인접 칸은 #14와 #24뿐입니다. 어느 칸에 발자국이 있는지 확인하면 생쥐가 아래(#24)로 갔는지, 쥐구멍 쪽(#14→#13)으로 갔는지 추리할 수 있습니다.';
+      s.log = '미션 2: 인접한 초록색 칸(#24 또는 #14)을 한 칸씩 클릭해 단서를 수색해 보세요!';
       renderTutorial();
     } else if (s.stage === 2 && eid === 'e_14_13') {
       s.catEdge = eid;
+      s.turn += 1;
       s.stage = 3;
       s.catActionMode = 'move';
-      s.log = '미션 4: 생쥐가 #13번 칸에 숨어 있는 것 같습니다! 오른쪽 [🐾 포획 시도 모드]를 누른 뒤 빨간 #13번 칸을 클릭하세요.';
+      s.deduction = '#14 발자국에서 2번 쥐구멍 방향으로 1칸 전진한 #13이 생쥐의 현재 위치일 가능성이 가장 높습니다!';
+      s.log = '미션 4: 추리한 위치(#13)를 잡을 차례입니다! 오른쪽 [🐾 포획 시도 모드]를 누른 뒤 빨간 [#13번 칸]을 클릭하세요.';
       renderTutorial();
     }
   }
 
   function handleCatNodeClick(nid) {
     const s = catPlay;
-    if (s.stage === 1) {
+    if (s.stage === 1 && (nid === 14 || nid === 24)) {
       const hit = s.mouseTrail.includes(nid);
       if (!s.checked.some((c) => c.nodeId === nid)) {
         s.checked.push({ nodeId: nid, hit });
@@ -754,17 +790,20 @@
       if (hit) {
         s.clues.push(nid);
         s.stage = 2;
-        s.banner = `🐾 #${nid}번 칸에서 발자국 발견! (즉시 수색·턴 종료)`;
-        s.log = '발자국을 찾았습니다! 미션 3: 다음 턴이 되어 주황색 [③ 추격 교차로]로 이동해 생쥐를 몰아붙여 보세요.';
+        s.banner = `🐾 #${nid}번 칸에서 발자국 발견! (발견 즉시 수색·턴 종료)`;
+        s.deduction = '발자국이 #14에 남았습니다! 치즈를 훔친 생쥐는 가장 가까운 [2번 쥐구멍]을 향해 #14 → #13 방향으로 이동했을 가능성이 높습니다.';
+        s.log = '단서를 잡았습니다! 미션 3: 예상 도주로를 막기 위해 주황색 [③ #13↔#14 교차로]로 추격 이동하세요.';
       } else {
-        s.banner = `❌ #${nid}번 칸에는 흔적이 없습니다. 인접한 #24번 칸을 계속 수색해 보세요!`;
-        s.log = '흔적이 없을 때는 남은 인접 칸을 한 칸씩 이어서 수색할 수 있습니다. 초록색 #24번 칸을 클릭해 보세요.';
+        s.banner = `❌ #${nid}번 칸에는 흔적이 없습니다. 인접한 #14번 칸을 이어서 수색해 보세요!`;
+        s.deduction = '#24에는 발자국이 없으므로 생쥐는 아래쪽(#24)으로 내려가지 않았습니다. 위쪽 #14를 확인해 이동 경로를 좁혀보세요!';
+        s.log = '흔적이 없을 때는 남은 인접 칸을 계속 수색할 수 있습니다. 초록색 [#14번 칸]을 클릭해 보세요.';
       }
       renderTutorial();
     } else if (s.stage === 3 && s.catActionMode === 'capture' && nid === 13) {
       s.stage = 4;
       s.banner = '🏆 #13번 칸에서 생쥐 포획 성공! 고양이 팀 즉시 승리!';
-      s.log = '축하합니다! 고양이의 핵심 플레이(교차로 이동 → 순차 수색·발자국 발견 → 추격 → 포획 승리)를 모두 체험했습니다!';
+      s.deduction = '완벽한 추리입니다! 흔적이 없는 칸(#24)을 소거하고 발자국(#14)에서 쥐구멍 방향(#13)을 예측해 포획에 성공했습니다.';
+      s.log = '축하합니다! 단서 수색으로 생쥐의 이동 경로를 추측해 포획하는 고양이 플레이를 모두 체험했습니다!';
       renderTutorial();
     }
   }
@@ -846,7 +885,7 @@
       progWrap.classList.add('hidden');
       guideNav.classList.add('hidden');
       playNav.classList.remove('hidden');
-      document.getElementById('tutStepSubtitle').textContent = '직접 칸과 카드를 클릭하며 생쥐의 핵심 플레이를 체험해 보세요';
+      document.getElementById('tutStepSubtitle').textContent = '매 턴 이동하는 고양이를 피해 생쥐 플레이를 직접 체험해 보세요';
       switchBtn.textContent = '🐱 고양이 실전 체험 →';
 
       bodyEl.innerHTML = renderMousePlayable();
@@ -865,7 +904,7 @@
       progWrap.classList.add('hidden');
       guideNav.classList.add('hidden');
       playNav.classList.remove('hidden');
-      document.getElementById('tutStepSubtitle').textContent = '교차로 이동 · 순차 수색 · 포획까지 고양이 플레이를 직접 체험해 보세요';
+      document.getElementById('tutStepSubtitle').textContent = '인접 칸 수색으로 생쥐의 이동 경로를 추측하고 포획해 보세요';
       switchBtn.textContent = '🐭 생쥐 실전 체험 →';
 
       bodyEl.innerHTML = renderCatPlayable();
