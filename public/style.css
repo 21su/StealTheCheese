@@ -44,3 +44,22 @@ body {
 .custom-scroll::-webkit-scrollbar { width: 6px; }
 .custom-scroll::-webkit-scrollbar-track { background: #1c1714; }
 .custom-scroll::-webkit-scrollbar-thumb { background: #4a3d32; border-radius: 4px; }
+
+/* Interactive Tutorial Enhancements */
+@keyframes tutFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tut-fade {
+  animation: tutFadeIn 0.22s ease-out;
+}
+.tut-step-pill {
+  transition: all 0.18s ease;
+}
+.tut-svg-pulse {
+  animation: tutPulse 1.4s ease-in-out infinite;
+}
+@keyframes tutPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
