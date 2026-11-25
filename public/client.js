@@ -271,6 +271,9 @@ socket.on('room:update', data => {
       localUI.catMode = 'search';
     } else {
       const curCat = localUI.selectedCatId !== null ? data.game.cats[localUI.selectedCatId] : null;
+      if (curCat && curCat.sprintMode && localUI.catMode !== 'move') {
+        localUI.catMode = 'move';
+      }
       if (!curCat || !myIndices.includes(localUI.selectedCatId) || curCat.actedThisTurn) {
         const nextCatIdx = myIndices.find(idx => !data.game.cats[idx]?.actedThisTurn);
         if (nextCatIdx !== undefined) {
@@ -828,7 +831,7 @@ function renderControls(game, me) {
         ? '🔍 단서 수색 중: 초록색으로 표시된 인접 칸을 한 칸씩 클릭해 차례대로 탐색하세요 (발견 시 즉시 종료!).'
         : localUI.catMode === 'capture'
         ? '🎯 포획 시도: 빨간색으로 표시된 인접 칸 1곳을 클릭하세요!'
-        : '주황색 교차로를 클릭해 이동(0~2칸)한 뒤, 아래 [단서 수색] 또는 [포획 시도] 버튼을 누르세요.')
+        : game.cats[localUI.selectedCatId]?.sprintMode ? '💨 [날쌘 걸음 ON] 3칸 범위의 주황색 교차로를 클릭한 뒤 아래 [3칸 이동 확정] 버튼을 누르세요!' : '주황색 교차로를 클릭해 이동(0~2칸)한 뒤, 아래 [단서 수색] 또는 [포획 시도] 버튼을 누르세요.')
       : '고양이 팀이 추격 중입니다...';
     if (me.team !== 'cat') {
       el.innerHTML = `
@@ -925,7 +928,19 @@ window.useCatAbility = (catId, cardId) => {
     return;
   }
   // Instant server abilities (no board target click needed)
-  if (['silver_1', 'gold_1', 'gold_5'].includes(cardId)) {
+  if (cardId === 'silver_1') {
+    const c = roomState?.game?.cats?.[catId];
+    localUI.selectedCatId = catId;
+    localUI.catMoveEdge = c ? c.edgeId : localUI.catMoveEdge;
+    localUI.catMode = 'move';
+    localUI.activeAbility = null;
+    localUI.controllingClone = false;
+    socket.emit('game:action', { type: 'catAction', catId, ability: { cardId: 'silver_1' } });
+    showToast(c?.sprintMode ? '날쌘 걸음 해제 (기본 2칸 이동)' : '💨 [날쌘 걸음] ON! 3칸 범위 교차로를 클릭한 뒤 아래 [3칸 이동 확정]을 누르세요.');
+    return;
+  }
+  if (['gold_1', 'gold_5'].includes(cardId)) {
+    localUI.selectedCatId = catId;
     socket.emit('game:action', { type: 'catAction', catId, ability: { cardId } });
     return;
   }
