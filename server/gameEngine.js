@@ -14,7 +14,7 @@ const CAT_CARDS = {
     { id: 'bronze_5', tier: 'bronze', name: '니가 와', tag: '팀', desc: '이번 게임에서 한 번만 다른 고양이 한 마리를 자신과 인접한 칸으로 이동시킨다. 이 턴 행동할 수 없다.', once: true, active: true }
   ],
   silver: [
-    { id: 'silver_1', tier: 'silver', name: '날쌘 걸음', tag: '이동', desc: '한 칸 더 이동할 수 있다. 그 턴 수색, 포획할 수 없다.', toggle: true },
+    { id: 'silver_1', tier: 'silver', name: '날쌘 걸음', tag: '이동', desc: '매 턴 한 칸 더 이동 가능하다. 추가 이동한 턴 포획할 수 없다.', passive: true },
     { id: 'silver_2', tier: 'silver', name: '넌 못 지나간다.', tag: '방해', desc: '칸 1곳을 고른다. 다음 라운드 동안 쥐는 그 칸을 지나갈 수 없다.', active: true },
     { id: 'silver_3', tier: 'silver', name: '양보단 질', tag: '보조', desc: '브론즈 카드를 1장 없애고, 골드 카드를 1장 뽑는다.', instant: true },
     { id: 'silver_4', tier: 'silver', name: '질보단 양', tag: '보조', desc: '남은 브론즈 카드 두 장을 획득한다.', instant: true },
@@ -132,6 +132,7 @@ class GameEngine {
         extraTurns: 0,
         failedSearches: 0,
         sprintMode: false,
+        usedExtraMoveThisTurn: false,
         searchingThisTurn: false,
         searchedNodes: []
       })),
@@ -254,12 +255,30 @@ class GameEngine {
     return Array.from(out);
   }
 
+  getEdgeDistance(startEdgeId, targetEdgeId, maxSteps = 3) {
+    if (startEdgeId === targetEdgeId) return 0;
+    const dist = { [startEdgeId]: 0 };
+    const q = [startEdgeId];
+    while (q.length) {
+      const cur = q.shift();
+      if (dist[cur] >= maxSteps) continue;
+      for (const nxt of EDGE_ADJ[cur] || []) {
+        if (dist[nxt] === undefined) {
+          dist[nxt] = dist[cur] + 1;
+          if (nxt === targetEdgeId) return dist[nxt];
+          q.push(nxt);
+        }
+      }
+    }
+    return Infinity;
+  }
+
   getCatBaseReachableEdges(catId, isClone = false) {
     const cat = isClone ? this.state.cloneCat : this.state.cats[catId];
     if (!cat || cat.edgeId === null) return [];
     if (!isClone && this.catHasCard(cat, 'gold_1')) return [cat.edgeId];
     const occupied = this.getCatOccupiedEdges(isClone ? -1 : catId, isClone);
-    const maxSteps = (!isClone && cat.sprintMode && this.catHasCard(cat, 'silver_1')) ? 3 : 2;
+    const maxSteps = (!isClone && this.catHasCard(cat, 'silver_1')) ? 3 : 2;
     const dist = { [cat.edgeId]: 0 };
     const q = [cat.edgeId];
     while (q.length) {
@@ -462,6 +481,7 @@ class GameEngine {
       c.actedThisTurn = false;
       c.extraTurns = 0;
       c.sprintMode = false;
+      c.usedExtraMoveThisTurn = false;
       c.searchingThisTurn = false;
       c.searchedNodes = [];
     });
@@ -590,12 +610,13 @@ class GameEngine {
       return { ok: true };
     }
 
-    if (!isClone && cat.sprintMode && this.catHasCard(cat, 'silver_1')) {
-      const msg = `💨 ${cat.name}가 [날쌘 걸음]으로 질주 이동했습니다 (행동 불가).`;
-      this.addLog(msg);
-      this.recordFrame(msg);
-      this.finishCat(catId);
-      return { ok: true };
+    const usedExtraMove = !isClone && this.catHasCard(cat, 'silver_1') && prevEdge !== edgeId && this.getEdgeDistance(prevEdge, edgeId, 3) > 2;
+    if (usedExtraMove) {
+      cat.usedExtraMoveThisTurn = true;
+    }
+    if (actionType === 'capture' && (usedExtraMove || cat.usedExtraMoveThisTurn)) {
+      actor.edgeId = prevEdge;
+      return { error: '날쌘 걸음으로 추가 이동(3칸)한 턴에는 포획할 수 없습니다. 단서 수색만 가능합니다.' };
     }
 
     const adj = this.getCatAdjacentNodes(edgeId, !isClone && this.catHasLonelyBonus(cat));
@@ -699,6 +720,7 @@ class GameEngine {
     }
     cat.actedThisTurn = true;
     cat.sprintMode = false;
+    cat.usedExtraMoveThisTurn = false;
     cat.searchingThisTurn = false;
     cat.searchedNodes = [];
     if (this.state.cats.every(c => c.actedThisTurn)) {
@@ -820,6 +842,7 @@ class GameEngine {
       c.searchingThisTurn = false;
       c.searchedNodes = [];
       c.sprintMode = false;
+      c.usedExtraMoveThisTurn = false;
     });
     if (this.state.cloneCat.active) {
       this.state.cloneCat.edgeId = resetReds[3] ?? resetReds[0];

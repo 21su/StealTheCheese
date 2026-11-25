@@ -143,6 +143,31 @@ function getCatAdjacentNodes(edgeId, extraRange = false) {
   return Array.from(base);
 }
 
+function getClientEdgeDistance(startEdgeId, targetEdgeId, maxSteps = 3) {
+  if (startEdgeId === targetEdgeId) return 0;
+  const dist = { [startEdgeId]: 0 };
+  const q = [startEdgeId];
+  while (q.length) {
+    const cur = q.shift();
+    if (dist[cur] >= maxSteps) continue;
+    for (const nxt of EDGE_ADJ[cur] || []) {
+      if (dist[nxt] === undefined) {
+        dist[nxt] = dist[cur] + 1;
+        if (nxt === targetEdgeId) return dist[nxt];
+        q.push(nxt);
+      }
+    }
+  }
+  return Infinity;
+}
+
+function isCatUsingExtraMove(game, catId, targetEdgeId) {
+  if (localUI.controllingClone || catId === null || targetEdgeId === null) return false;
+  const cat = game?.cats?.[catId];
+  if (!cat || !catHasCard(cat, 'silver_1')) return false;
+  return Boolean(cat.usedExtraMoveThisTurn) || getClientEdgeDistance(cat.edgeId, targetEdgeId, 3) > 2;
+}
+
 function getCatReachableEdges(game, catId) {
   const cat = game.cats[catId];
   if (!cat || cat.edgeId === null) return [];
@@ -151,7 +176,7 @@ function getCatReachableEdges(game, catId) {
   if (catHasCard(cat, 'silver_5') && (cat.failedSearches || 0) >= 5) {
     return GRAPH.edges.map(e => e.id).filter(eid => eid === cat.edgeId || !occ.has(eid));
   }
-  const maxSteps = (cat.sprintMode && catHasCard(cat, 'silver_1')) ? 3 : 2;
+  const maxSteps = catHasCard(cat, 'silver_1') ? 3 : 2;
   const dist = { [cat.edgeId]: 0 };
   const q = [cat.edgeId];
   while (q.length) {
@@ -759,7 +784,7 @@ function renderCatCardBadges(cat, canUseNow = false) {
       ? 'border-slate-400/70 text-slate-200 bg-slate-500/15'
       : 'border-orange-700/80 text-orange-200 bg-orange-950/50';
     const tierLabel = card.tier === 'gold' ? '3단계 · 골드' : card.tier === 'silver' ? '2단계 · 실버' : '1단계 · 브론즈';
-    const isActivatable = ['bronze_1','bronze_3','bronze_5','silver_1','silver_2','gold_1','gold_4','gold_5'].includes(effId);
+    const isActivatable = ['bronze_1','bronze_3','bronze_5','silver_2','gold_1','gold_4','gold_5'].includes(effId);
     const alreadyUsedOnce = Boolean(cat.usedOnce?.[effId]);
     const isTargeting = (localUI.catMode === 'ability' && localUI.activeAbility?.cardId === effId);
     const showBtn = canUseNow && isActivatable && !alreadyUsedOnce;
@@ -861,7 +886,7 @@ function renderControls(game, me) {
         ? '🔍 단서 수색 중: 초록색으로 표시된 인접 칸을 한 칸씩 클릭해 차례대로 탐색하세요 (발견 시 즉시 종료!).'
         : localUI.catMode === 'capture'
         ? '🎯 포획 시도: 빨간색으로 표시된 인접 칸 1곳을 클릭하세요!'
-        : game.cats[localUI.selectedCatId]?.sprintMode ? '💨 [날쌘 걸음 ON] 3칸 범위의 주황색 교차로를 클릭한 뒤 아래 [3칸 이동 확정] 버튼을 누르세요!' : '주황색 교차로를 클릭해 이동(0~2칸)한 뒤, 아래 [단서 수색] 또는 [포획 시도] 버튼을 누르세요.')
+        : isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? '💨 [날쌘 걸음] 3칸 추가 이동 선택됨! 이번 턴은 포획 불가 — [단서 수색]만 가능합니다.' : (catHasCard(game.cats[localUI.selectedCatId], 'silver_1') ? '💨 [날쌘 걸음] 주황색 교차로를 클릭해 0~3칸 이동하세요 (3칸 추가 이동 시 포획 불가).' : '주황색 교차로를 클릭해 이동(0~2칸)한 뒤, 아래 [단서 수색] 또는 [포획 시도] 버튼을 누르세요.'))
       : '고양이 팀이 추격 중입니다...';
     if (me.team !== 'cat') {
       el.innerHTML = `
@@ -906,9 +931,13 @@ function renderControls(game, me) {
               <button onclick="endCatSearchEarly()" class="w-full py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs">수색 그만하기 (턴 종료)</button>
             </div>
           ` : `
+            ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? `
+              <div class="px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/50 text-[11px] font-bold text-amber-200">
+                💨 [날쌘 걸음] 3칸 추가 이동 선택 — 이번 턴은 단서 수색만 가능 (포획 불가)
+              </div>` : ''}
             <div class="grid grid-cols-2 gap-2 pt-1">
               <button onclick="setCatSearchMode()" class="py-2 rounded-lg ${localUI.catMode === 'search' ? 'bg-emerald-500 text-stone-950' : 'bg-stone-800 hover:bg-stone-700 text-emerald-300 border border-emerald-500/40'} font-extrabold text-xs">🔍 ${localUI.controllingClone ? '분신 ' : ''}단서 수색 (한 칸씩)</button>
-              <button  onclick="setCatCaptureMode()" class="py-2 rounded-lg ${localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40'} font-extrabold text-xs ">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
+              <button onclick="setCatCaptureMode()" ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? 'disabled title="날쌘 걸음 3칸 추가 이동 시 포획 불가"' : ''} class="py-2 rounded-lg ${isCatUsingExtraMove(game, localUI.selectedCatId, localUI.catMoveEdge) ? 'bg-stone-900 text-stone-500 border border-stone-700 cursor-not-allowed opacity-50' : (localUI.catMode === 'capture' ? 'bg-red-500 text-white' : 'bg-stone-800 hover:bg-stone-700 text-red-300 border border-red-500/40')} font-extrabold text-xs">🎯 ${localUI.controllingClone ? '분신 ' : ''}포획 시도</button>
             </div>
           `}
         `}` : `<div class="text-[11px] text-stone-400">행동할 고양이를 선택하면 이동 범위 가이드라인과 카드 [발동] 버튼이 활성화됩니다.</div>`}
@@ -944,7 +973,7 @@ window.pickMouse = id => { if (!(roomState?.me?.seatIndices || []).includes(id))
 window.toggleMCard = cid => { localUI.selectedMouseCard = localUI.selectedMouseCard === cid ? null : cid; renderAll(); };
 window.confirmMouse = () => socket.emit('game:action', { type: 'confirmMouseTurn' });
 window.pickCat = id => { if (!(roomState?.me?.seatIndices || []).includes(id)) { showToast('본인이 조종하는 고양이 말만 움직일 수 있습니다!'); return; } localUI.selectedCatId = id; localUI.catMoveEdge = roomState.game.cats[id].edgeId; localUI.catMode = roomState.game.cats[id].searchingThisTurn ? 'search' : 'move'; renderAll(); };
-window.setCatCaptureMode = () => { localUI.catMode = 'capture'; showToast('빨간색으로 표시된 인접 원형 칸 중 1곳을 클릭하세요!'); renderAll(); };
+window.setCatCaptureMode = () => { if (roomState?.game && isCatUsingExtraMove(roomState.game, localUI.selectedCatId, localUI.catMoveEdge)) { showToast('💨 날쌘 걸음으로 3칸 추가 이동한 턴에는 포획할 수 없습니다. 단서 수색만 가능합니다.'); return; } localUI.catMode = 'capture'; showToast('빨간색으로 표시된 인접 원형 칸 중 1곳을 클릭하세요!'); renderAll(); };
 window.cancelCatAbility = () => {
   localUI.catMode = 'move';
   localUI.activeAbility = null;
